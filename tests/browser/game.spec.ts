@@ -1,0 +1,53 @@
+import { test, expect } from '@playwright/test';
+test('solo: selección, controles, pausa y regreso al inicio',async({page})=>{
+  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto('/');await page.waitForLoadState('networkidle');
+  await expect(page.getByRole('heading',{name:/La cancha/})).toBeVisible();
+  await expect(page.locator('.roster-card')).toHaveCount(12);
+  await page.screenshot({path:'.artifacts/home.png',fullPage:true});
+  await page.getByRole('button',{name:/Jugar ahora/}).click();
+  await expect(page.getByRole('heading',{name:'Arma tu equipo.'})).toBeVisible();
+  await page.locator('.sol [data-slot="0"]').click();
+  await page.getByRole('button',{name:'Lucario Equilibrado',exact:false}).click();
+  await expect(page.locator('.sol [data-slot="0"]')).toContainText('Lucario');
+  await page.getByRole('button',{name:'Estoy listo',exact:false}).click();
+  await page.getByRole('button',{name:'A la cancha',exact:false}).click();
+  await expect(page.locator('#player-hud')).toContainText('Lucario');
+  await page.waitForFunction(()=>['playing','overtime'].includes((window as any).__pokesoccer.state.phase));
+  const before=await page.evaluate(()=>{const d=(window as any).__pokesoccer;return d.state.players.find((p:any)=>p.controller===d.session).x;});
+  await page.keyboard.down('d');await page.waitForTimeout(500);await page.keyboard.up('d');
+  const after=await page.evaluate(()=>{const d=(window as any).__pokesoccer;return d.state.players.find((p:any)=>p.controller===d.session).x;});
+  expect(after).toBeGreaterThan(before+1);
+  await page.screenshot({path:'.artifacts/match.png',fullPage:true});
+  await page.keyboard.press('Escape');await expect(page.locator('#phase-overlay')).toContainText('En pausa');
+  const clock=await page.locator('#clock').textContent();await page.waitForTimeout(1100);expect(await page.locator('#clock').textContent()).toBe(clock);
+  await page.keyboard.press('Escape');await page.getByRole('button',{name:/Salir de la cancha/}).click();
+  await expect(page.getByRole('heading',{name:/La cancha/})).toBeVisible();
+  expect(errors).toEqual([]);
+});
+test('online: dos navegadores comparten sala, elección y partido',async({browser})=>{
+  const a=await browser.newContext(),b=await browser.newContext();
+  const p=await a.newPage(),q=await b.newPage();
+  try{
+    await p.goto('/');await p.getByRole('button',{name:/Invitar amigos/}).click();
+    await p.locator('#nickname').fill('Ana');await p.getByRole('button',{name:/Crear sala/}).click();
+    await expect(p.locator('.room-card strong')).toHaveText(/^[A-F0-9]{6}$/);
+    const code=await p.locator('.room-card strong').textContent();
+    await q.goto('/?sala='+code);await q.locator('#nickname').fill('Bruno');
+    await q.locator('#online-team').selectOption('1');await q.getByRole('button',{name:'Entrar ↗',exact:true}).click();
+    await expect(p.locator('.luna')).toContainText('Bruno');
+    await p.getByRole('button',{name:/Estoy listo/}).click();await q.getByRole('button',{name:/Estoy listo/}).click();
+    await p.getByRole('button',{name:/A la cancha/}).click();
+    await expect(p.locator('#match')).toBeVisible();await expect(q.locator('#match')).toBeVisible();
+    await expect(q.locator('#pause-button')).toBeHidden();
+    await q.reload();await q.getByRole('button',{name:/Reconectar a mi partido/}).click();
+    await expect(q.locator('#match')).toBeVisible();
+    const names=await q.evaluate(()=>(window as any).__pokesoccer.state.humans.map((h:any)=>h.name));
+    expect(names).toContain('Ana');expect(names).toContain('Bruno');
+    await q.waitForFunction(()=>(window as any).__pokesoccer.state.phase==='playing');
+    const before=await q.evaluate(()=>{const d=(window as any).__pokesoccer;return d.state.players.find((p:any)=>p.controller===d.session).z;});
+    await q.keyboard.down('s');await q.waitForTimeout(500);await q.keyboard.up('s');
+    const after=await q.evaluate(()=>{const d=(window as any).__pokesoccer;return d.state.players.find((p:any)=>p.controller===d.session).z;});
+    expect(after).toBeGreaterThan(before+1);
+  }finally{await a.close();await b.close();}
+});

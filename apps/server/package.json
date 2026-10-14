@@ -1,0 +1,5 @@
+{
+  "name": "@pokesoccer/server",
+  "private": true,
+  "type": "module"
+}

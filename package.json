@@ -1,0 +1,35 @@
+{
+  "name": "pokesoccer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "npm run build -w @pokesoccer/client",
+    "start": "node --env-file-if-exists=.env --experimental-strip-types apps/server/src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:network": "node --experimental-strip-types tests/network.ts",
+    "test:browser": "playwright test",
+    "test:load": "node --experimental-strip-types tests/load.ts",
+    "test:publish": "node --test tests/publish.test.mjs"
+  },
+  "dependencies": {
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/ws": "8.18.1",
+    "@types/node": "22.20.2",
+    "typescript": "5.9.3",
+    "vite": "7.3.1",
+    "vitest": "4.1.11",
+    "@playwright/test": "1.59.0"
+  },
+  "engines": {
+    "node": ">=24.0.0 <25"
+  }
+}
