@@ -1,7 +1,7 @@
 import { GLRenderer } from './gl.ts';
 import { drawPokemon } from './models.ts';
 import { lerp } from '../../../packages/game/src/math.ts';
-import { POKEMON } from '../../../packages/game/src/catalog.ts';
+import { FIELD } from '../../../packages/game/src/catalog.ts';
 import type { MatchState, Team } from '../../../packages/game/src/types.ts';
 
 export const TEAM_COLORS=['#ff9d67','#6fdaec'];
@@ -35,6 +35,8 @@ export class Scene {
         const team=TEAM_COLORS[p.team];
         g.shape('sphere',x,.035,z,p.keeper?1.2:.9,.025,.68,'#164038');
         g.shape('ring',x,.06,z,controlled?1.15:.87,1,controlled?1.15:.87,controlled?'#f8e99a':team);
+        const recipient=s.keeperPossession?.targetId===p.id&&s.keeperPossession.controller===this.myId;
+        if(recipient)g.shape('ring',x,.1,z,1.5,1,1.5,'#fff3bb');
         if(controlled)g.shape('cone',x,3.5+Math.sin(time*4)*.12,z,.22,.42,.22,'#ffed9f',0,Math.PI);
         const yaw=Math.atan2(p.facingX,p.facingZ);
         drawPokemon(g,p.species,x,z,yaw,time,p.anim==='run',p.keeper?.85:1,p.stun>0,p.cast>0);
@@ -43,7 +45,8 @@ export class Scene {
         if(!this.hero) {
           const point=g.project(x,2.75,z);
           const h=s.humans.find(h=>h.id===p.controller);
-          label.textContent=controlled?'TÚ':h?h.name:p.keeper?'POR':'BOT';
+          label.textContent=controlled?(p.keeper?'TÚ · SAQUE':'TÚ'):recipient?'PASE':h?h.name:p.keeper?'POR':'BOT';
+          label.classList.toggle('is-target',recipient);
           label.style.transform='translate('+point.x+'px,'+point.y+'px) translate(-50%,-50%)';
           label.style.color=controlled?'#fff3bb':team;
           label.classList.toggle('is-you',controlled);
@@ -80,46 +83,46 @@ export class Scene {
     g.end();
   }
   private stadium(time:number) {
-    const g=this.renderer;
-    g.shape('box',0,-1,0,57,1.8,36,'#153d35');
-    g.shape('box',0,-.15,0,49,.3,29,'#357452');
-    for(let i=0;i<12;i++)g.shape('box',-22+i*4,.012,0,4,.012,28,i%2?'#397953':'#418259');
+    const g=this.renderer, w=FIELD.halfWidth, d=FIELD.halfDepth;
+    g.shape('box',0,-1,0,w*2+9,1.8,d*2+8,'#153d35');
+    g.shape('box',0,-.15,0,w*2+1,.3,d*2+1,'#357452');
+    for(let i=0;i<12;i++)g.shape('box',-w+(i+.5)*w/6,.012,0,w/6,.012,d*2,i%2?'#397953':'#418259');
     const line='#d1dfad';
-    g.shape('box',0,.03,-14,48,.035,.12,line);g.shape('box',0,.03,14,48,.035,.12,line);
-    g.shape('box',-24,.03,0,.12,.035,28,line);g.shape('box',24,.03,0,.12,.035,28,line);
-    g.shape('box',0,.035,0,.12,.035,28,line);g.shape('ring',0,.045,0,4.1,1,4.1,line);
+    g.shape('box',0,.03,-d,w*2,.035,.12,line);g.shape('box',0,.03,d,w*2,.035,.12,line);
+    g.shape('box',-w,.03,0,.12,.035,d*2,line);g.shape('box',w,.03,0,.12,.035,d*2,line);
+    g.shape('box',0,.035,0,.12,.035,d*2,line);g.shape('ring',0,.045,0,4.1,1,4.1,line);
     g.shape('sphere',0,.06,0,.18,.04,.18,line);
     for(const side of [-1,1]) {
-      g.shape('box',side*20,.03,-6,8,.035,.12,line);g.shape('box',side*20,.03,6,8,.035,.12,line);
-      g.shape('box',side*16,.03,0,.12,.035,12,line);
-      for(const z of [-14.6,14.6])g.shape('box',0,.55,z,49,1.1,.5,'#225349');
-      for(const z of [-9,9])g.shape('box',side*24.6,.55,z,.5,1.1,10,'#225349');
+      g.shape('box',side*(w-FIELD.areaDepth/2),.03,-FIELD.areaHalf,FIELD.areaDepth,.035,.12,line);g.shape('box',side*(w-FIELD.areaDepth/2),.03,FIELD.areaHalf,FIELD.areaDepth,.035,.12,line);
+      g.shape('box',side*(w-FIELD.areaDepth),.03,0,.12,.035,FIELD.areaHalf*2,line);
+      for(const z of [-d-.6,d+.6])g.shape('box',0,.55,z,w*2+1,1.1,.5,'#225349');
+      for(const z of [-(d+FIELD.goalHalf)/2,(d+FIELD.goalHalf)/2])g.shape('box',side*(w+.6),.55,z,.5,1.1,d-FIELD.goalHalf,'#225349');
       const color=TEAM_COLORS[side===-1?(this.state?.half===2?1:0):(this.state?.half===2?0:1)];
-      for(const z of [-3.6,3.6]) {
-        g.shape('cylinder',side*24,1.6,z,.1,3.2,.1,color);
-        g.shape('box',side*25.1,.1,z,2.2,.12,.12,'#cadfd3');
+      for(const z of [-FIELD.goalHalf,FIELD.goalHalf]) {
+        g.shape('cylinder',side*w,FIELD.goalHeight/2,z,.1,FIELD.goalHeight,.1,color);
+        g.shape('box',side*(w+1.1),.1,z,2.2,.12,.12,'#cadfd3');
       }
-      g.shape('box',side*24,3.2,0,.18,.18,7.3,color);
-      g.shape('box',side*26,1.6,0,.1,3.2,7.2,'#214b42');
-      for(let z=-3.6;z<=3.6;z+=.6)g.shape('box',side*26,1.6,z,.06,3.2,.035,'#6c9681');
-      for(let y=.6;y<3.3;y+=.6)g.shape('box',side*26,y,0,.06,.035,7.2,'#6c9681');
+      g.shape('box',side*w,FIELD.goalHeight,0,.18,.18,FIELD.goalHalf*2+.1,color);
+      g.shape('box',side*(w+2),FIELD.goalHeight/2,0,.1,FIELD.goalHeight,FIELD.goalHalf*2,'#214b42');
+      for(let z=-FIELD.goalHalf;z<=FIELD.goalHalf;z+=.6)g.shape('box',side*(w+2),FIELD.goalHeight/2,z,.06,FIELD.goalHeight,.035,'#6c9681');
+      for(let y=.6;y<FIELD.goalHeight+.1;y+=.6)g.shape('box',side*(w+2),y,0,.06,.035,FIELD.goalHalf*2,'#6c9681');
       for(let i=0;i<3;i++) {
-        const z=side*(16.2+i*1.05),y=.6+i*.45;
-        g.shape('box',0,y,z,51,.5,.9,i%2?'#1c4940':'#234f43');
+        const z=side*(d+2.2+i*1.05),y=.6+i*.45;
+        g.shape('box',0,y,z,w*2+3,.5,.9,i%2?'#1c4940':'#234f43');
         if(this.renderer.quality==='high')for(let j=0;j<30;j++) {
-          const x=-24+j*1.65;
+          const x=-w+j*(w*2/29);
           g.shape('box',x,y+.35,z,.42,.45,.4,j%3===0?color:j%3===1?'#486853':'#7d8c69');
         }
       }
     }
-    for(const x of [-25,25])for(const z of [-16,16]) {
+    for(const x of [-w-1,w+1])for(const z of [-d-2,d+2]) {
       g.shape('cylinder',x,3.5,z,.12,7,.12,'#6a8475');
       g.shape('box',x,7.1,z,2,.65,.4,'#e8edbd');
     }
     for(let i=0;i<8;i++) {
-      const x=-21+i*6;
-      g.shape('box',x,.6,-14.88,4.8,.55,.03,i%2?'#da925b':'#91c2ad');
-      g.shape('box',x,.6,14.88,4.8,.55,.03,i%2?'#91c2ad':'#da925b');
+      const x=-w+(i+.5)*w/4;
+      g.shape('box',x,.6,-d-.88,4.8,.55,.03,i%2?'#da925b':'#91c2ad');
+      g.shape('box',x,.6,d+.88,4.8,.55,.03,i%2?'#91c2ad':'#da925b');
     }
   }
 }

@@ -14,12 +14,16 @@ test('final online y revancha pasan por las pantallas reales',async({page})=>{
     },{port});
     await page.goto('/');await page.getByRole('button',{name:/Invitar amigos/}).click();
     await page.getByRole('button',{name:/Crear sala/}).click();
+    await page.locator('#pace-setting').selectOption('slow');
+    await page.locator('#difficulty-setting').selectOption('hard');
     await page.getByRole('button',{name:/Estoy listo/}).click();
     await page.getByRole('button',{name:/A la cancha/}).click();
     await expect(page.locator('#results')).toBeVisible({timeout:25000});
     await expect(page.locator('.final-score')).toContainText('0');
     await page.getByRole('button',{name:/Un partido más/}).click();
     await expect(page.getByRole('heading',{name:'Arma tu equipo.'})).toBeVisible();
+    await expect(page.locator('#pace-setting')).toHaveValue('slow');
+    await expect(page.locator('#difficulty-setting')).toHaveValue('hard');
     await expect(page.getByRole('button',{name:/Estoy listo/})).toBeVisible();
     await page.getByRole('button',{name:/Estoy listo/}).click();
     await page.getByRole('button',{name:/A la cancha/}).click();
@@ -29,11 +33,15 @@ test('final online y revancha pasan por las pantallas reales',async({page})=>{
 
 test('reasignación persistente y modificadores de mando',async({page})=>{
   await page.goto('/');await page.getByRole('button',{name:/Cómo jugar/}).click();
+  await expect(page.locator('[data-bind="up"] kbd')).toHaveText('↑');
+  await expect(page.locator('[data-bind="pass"] kbd')).toHaveText('A');
+  await page.getByRole('button',{name:'WASD + J/K/L',exact:true}).click();
+  await expect(page.locator('[data-bind="right"] kbd')).toHaveText('D');
   await page.locator('[data-bind="right"]').click();await page.keyboard.press('ArrowRight');
-  await expect(page.locator('[data-bind="right"] kbd')).toHaveText('Right');
+  await expect(page.locator('[data-bind="right"] kbd')).toHaveText('→');
   await page.getByRole('button',{name:'Cerrar',exact:true}).click();await page.reload();
   await page.getByRole('button',{name:/Cómo jugar/}).click();
-  await expect(page.locator('[data-bind="right"] kbd')).toHaveText('Right');
+  await expect(page.locator('[data-bind="right"] kbd')).toHaveText('→');
   await page.getByRole('button',{name:'Cerrar',exact:true}).click();
   // Exercise the production controller with the browser's Gamepad interface stubbed.
   const samples=await page.evaluate(async()=>{
@@ -45,10 +53,17 @@ test('reasignación persistente y modificadores de mando',async({page})=>{
     buttons[4].pressed=true;buttons[0].pressed=true;buttons[2].pressed=true;buttons[3].pressed=true;buttons[1].pressed=true;
     const modified=controls.read(1);
     buttons[4].pressed=false;const basic=controls.read(1);
-    return {modified,basic};
+    const keeper=controls.read(1,true);
+    buttons[4].pressed=true;const keeperModified=controls.read(1,true);
+    const inherited=controls.read(2,true);
+    return {modified,basic,keeper,keeperModified,inherited};
   });
   expect(samples.modified).toMatchObject({moveX:0,moveZ:-.8,simple:true,normal:true,special:true,item:true,pass:false,shoot:false,lob:false,dodge:false});
   expect(samples.basic).toMatchObject({pass:true,shoot:true,lob:true,dodge:true,simple:false,normal:false,special:false,item:false});
+  expect(samples.keeper).toMatchObject({pass:true,shoot:true,lob:true,simple:false,normal:false,special:false,item:false,dodge:false});
+  expect(samples.keeperModified).toMatchObject({pass:true,shoot:true,lob:true,simple:false,normal:false,special:false,item:false});
+  expect(samples.inherited).toMatchObject({pass:false,shoot:false,lob:false});
+  await page.evaluate(()=>Object.defineProperty(navigator,'getGamepads',{value:()=>[],configurable:true}));
   await page.getByRole('button',{name:/Jugar ahora/}).click();
   await page.getByRole('button',{name:/Estoy listo/}).click();await page.getByRole('button',{name:/A la cancha/}).click();
   await page.waitForFunction(()=>(window as any).__pokesoccer.state.phase==='playing');

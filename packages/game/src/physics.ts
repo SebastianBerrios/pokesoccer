@@ -1,19 +1,17 @@
 import { FIELD } from './catalog.ts';
 import { clamp, distance, segmentDistance, unit } from './math.ts';
-import { attackDirection, byId, event, random, resetPositions } from './state.ts';
-import { catchBall, gain, hit, passBall } from './ball.ts';
+import { attackDirection, byId, event, random, resetPositions, endKeeperPossession } from './state.ts';
+import { catchBall, gain, hit } from './ball.ts';
 import type { Fighter, MatchState, Team } from './types.ts';
 
 export function updateKeepers(s:MatchState,dt:number) {
   for(const p of s.players.filter(p=>p.keeper)) {
+    if(s.keeperPossession?.keeperId===p.id)continue;
     const dir=attackDirection(s,p.team);
-    const targetZ=clamp(s.ball.z*.65,-2.8,2.8);
+    const targetZ=clamp(s.ball.z*.65,-FIELD.goalHalf+.8,FIELD.goalHalf-.8);
     p.z+=clamp(targetZ-p.z,-4.2*dt,4.2*dt);
-    p.x=-dir*22.2;p.facingX=dir;p.facingZ=0;
+    p.x=-dir*(FIELD.halfWidth-FIELD.keeperInset);p.facingX=dir;p.facingZ=0;
     p.aiTimer-=dt;
-    if(s.ball.owner===p.id&&p.aiTimer<=0) {
-      p.actionCd=0;passBall(s,p,false);p.aiTimer=.5;
-    }
   }
 }
 export function resolvePlayers(s:MatchState,dt:number) {
@@ -21,9 +19,9 @@ export function resolvePlayers(s:MatchState,dt:number) {
     if(p.keeper)continue;
     p.x+=p.vx*dt;p.z+=p.vz*dt;
     p.vx*=Math.exp(-6*dt);p.vz*=Math.exp(-6*dt);
-    const wall=Math.abs(p.x)>23.35||Math.abs(p.z)>13.35;
+    const wall=Math.abs(p.x)>(FIELD.halfWidth-FIELD.playerRadius)||Math.abs(p.z)>(FIELD.halfDepth-FIELD.playerRadius);
     if(wall&&Math.hypot(p.vx,p.vz)>6)hit(s,p,0,0,0,.5);
-    p.x=clamp(p.x,-23.35,23.35);p.z=clamp(p.z,-13.35,13.35);
+    p.x=clamp(p.x,-(FIELD.halfWidth-FIELD.playerRadius),(FIELD.halfWidth-FIELD.playerRadius));p.z=clamp(p.z,-(FIELD.halfDepth-FIELD.playerRadius),(FIELD.halfDepth-FIELD.playerRadius));
   }
   for(let i=0;i<s.players.length;i++)for(let j=i+1;j<s.players.length;j++) {
     const a=s.players[i],b=s.players[j],d=distance(a,b);
@@ -40,7 +38,7 @@ export function scoreGoal(s:MatchState,side:number) {
   const scorer=byId(s,s.ball.lastTouch);
   if(scorer?.team===scoring)gain(scorer,50);
   event(s,'goal','¡GOOOL!',scorer);
-  if(s.half===3) {s.phase='finished';s.winner=scoring;return;}
+  if(s.half===3) {endKeeperPossession(s);s.phase='finished';s.winner=scoring;return;}
   s.phase='goal';s.phaseTime=3;
   resetPositions(s,scoring===0?1:0);
 }
@@ -58,7 +56,7 @@ export function updateBall(s:MatchState,dt:number) {
   if(b.y<.35){b.y=.35;b.vy=Math.abs(b.vy)>.9?-b.vy*.42:0;}
   const drag=b.y>.4?.07:.5;
   b.vx*=Math.exp(-drag*dt);b.vz*=Math.exp(-drag*dt);
-  if(Math.abs(b.z)>FIELD.halfDepth-.3){b.z=clamp(b.z,-13.7,13.7);b.vz*=-.82;}
+  if(Math.abs(b.z)>FIELD.halfDepth-.3){b.z=clamp(b.z,-FIELD.halfDepth+FIELD.ballRadius,FIELD.halfDepth-FIELD.ballRadius);b.vz*=-.82;}
   for(const e of s.effects)if(e.kind==='wall'&&b.y<3&&segmentDistance(e,prev,b)<e.radius+.3) {
     const v=unit(b.x-e.x,b.z-e.z),dot=b.vx*v.x+b.vz*v.z;
     if(dot<0){b.vx-=2*dot*v.x;b.vz-=2*dot*v.z;b.x=e.x+v.x*(e.radius+.35);b.z=e.z+v.z*(e.radius+.35);if(e.reflect)e.life=0;}
@@ -77,7 +75,7 @@ export function updateBall(s:MatchState,dt:number) {
     const crossingZ=prev.z+(b.z-prev.z)*clamp(t,0,1);
     if(Math.abs(b.x)>=FIELD.halfWidth&&Math.abs(crossingZ)<FIELD.goalHalf-.25&&b.y<FIELD.goalHeight-.2) {scoreGoal(s,Math.sign(b.x));return;}
     if(Math.abs(crossingZ)>=FIELD.goalHalf-.25||b.y>=FIELD.goalHeight-.2) {
-      b.x=clamp(b.x,-23.7,23.7);b.vx*=-.85;
+      b.x=clamp(b.x,-FIELD.halfWidth+FIELD.ballRadius,FIELD.halfWidth-FIELD.ballRadius);b.vx*=-.85;
     }
   }
   if(b.fiery>0&&s.tick%3===0) {
@@ -91,7 +89,7 @@ export function updatePickups(s:MatchState,dt:number) {
   if(s.orbTimer<=0) {s.orbTimer=30;if(!s.pickups.some(o=>o.kind==='orb'))s.pickups.push({id:s.nextId++,kind:'orb',x:0,z:0,life:9999});}
   if(s.itemTimer<=0) {
     s.itemTimer=20;
-    for(const z of [-10,10])if(!s.pickups.some(o=>o.kind!=='orb'&&Math.abs(o.z-z)<1)) {
+    for(const z of [-FIELD.halfDepth*.72,FIELD.halfDepth*.72])if(!s.pickups.some(o=>o.kind!=='orb'&&Math.abs(o.z-z)<1)) {
       const kind=(['berry','shield','bomb'] as const)[Math.floor(random(s)*3)];
       s.pickups.push({id:s.nextId++,kind,x:0,z,life:20});
     }

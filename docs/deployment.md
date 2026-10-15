@@ -10,7 +10,7 @@ Necesitas Node.js 24, Git, GitHub CLI con la sesión de `SebastianBerrios` inici
 
 El comando sube el código a [SebastianBerrios/pokesoccer](https://github.com/SebastianBerrios/pokesoccer), crea un servidor de salas **Free** en Virginia y un sitio estático, configura sus URL reales y verifica una partida online con dos clientes. Al finalizar muestra **PUBLICACIÓN VERIFICADA** y el enlace para jugar.
 
-**Estado de esta entrega:** publicador y juego comprobados localmente; publicación externa pendiente. La sesión del agente tiene bloqueadas las conexiones salientes a GitHub y Render. El comando debe ejecutarse desde la terminal normal del equipo.
+**Última publicación comprobada, anterior a la jugabilidad estratégica:** publicada y verificada el 14 de octubre de 2026 a las 18:50 UTC mediante el publicador ejecutado en la terminal del usuario. [Abrir el juego](https://pokesoccer-web.onrender.com). El comprobante local `.artifacts/publication.json` registra el commit [`c78bed1`](https://github.com/SebastianBerrios/pokesoccer/commit/c78bed1e615ca04abe56ee0e6ec71d2fd8d90226), ambos servicios activos y la prueba online aprobada.
 
 ## Qué hace el comando
 
@@ -58,4 +58,4 @@ Tras publicar, prueba una partida individual, una sala con amigos y una reconexi
 
 Para volver a una versión anterior, restaura una revisión compatible de frontend y servidor. No hay migraciones ni base de datos.
 
-La compilación Linux, el arranque real en Render y la latencia desde Perú siguen pendientes hasta completar la publicación. Las pruebas locales con latencia simulada no sustituyen esa medición.
+La compilación y el arranque en Render pasaron para esa versión anterior; la entrega estratégica debe volver a verificarlos tras publicarse. Falta medir la latencia y estabilidad desde Perú durante partidas con amigos; la prueba breve del publicador y las pruebas locales no sustituyen esa medición.

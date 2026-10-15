@@ -1,3 +1,4 @@
+import { FIELD } from '../../../packages/game/src/geometry.ts';
 type V3=[number,number,number];
 export type Shape='box'|'sphere'|'cone'|'cylinder'|'ring';
 export type M4=Float32Array;
@@ -26,7 +27,13 @@ export function camera(width:number,height:number,hero:boolean|'portrait'=false)
   const x=normalize(cross([0,1,0],z)),y=cross(z,x);
   const view=new Float32Array([x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,-dot(x,eye),-dot(y,eye),-dot(z,eye),1]);
   const aspect=width/height;
-  const spanX=portrait?4.1:Math.max(54,(hero?40:32)*aspect),spanY=spanX/aspect;
+  let boundX=0,boundY=0;
+  for(const xx of [-FIELD.halfWidth-3,FIELD.halfWidth+3])
+    for(const zz of [-FIELD.halfDepth-1,FIELD.halfDepth+1])for(const yy of [0,4]) {
+      boundX=Math.max(boundX,Math.abs(dot(x,[xx,yy,zz])));
+      boundY=Math.max(boundY,Math.abs(dot(y,[xx,yy,zz])));
+    }
+  const spanX=portrait?4.1:Math.max((boundX+2)*2,(boundY+2)*2*aspect),spanY=spanX/aspect;
   const near=.1,far=150;
   const proj=new Float32Array([2/spanX,0,0,0,0,2/spanY,0,0,0,0,-2/(far-near),0,0,0,-(far+near)/(far-near),1]);
   return multiply(proj,view);

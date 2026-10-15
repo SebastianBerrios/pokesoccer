@@ -10,6 +10,7 @@ self.onmessage=(event:MessageEvent<ClientMessage|{type:'pause',value:boolean}>)=
     else if(msg.type==='input')game.input('local',msg.input);
     else if(msg.type==='choose')game.choose('local',msg.slot,msg.species);
     else if(msg.type==='team')game.changeTeam('local',msg.team);
+    else if(msg.type==='configure')game.configure('local',msg.settings);
     else if(msg.type==='ready')game.ready('local',msg.ready);
     else if(msg.type==='start')game.start('local');
     else if(msg.type==='rematch')game.rematch('local');

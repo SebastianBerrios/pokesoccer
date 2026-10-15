@@ -1,5 +1,5 @@
 import { describe,it,expect } from 'vitest';
-import { Game, emptyInput, controlled, transfer, sanitizeInput, attackDirection, ROSTER, POKEMON } from '../packages/game/src/index.ts';
+import { Game, emptyInput, controlled, transfer, sanitizeInput, attackDirection, ROSTER, POKEMON, FIELD } from '../packages/game/src/index.ts';
 import { castAbility, updateEffects } from '../packages/game/src/abilities.ts';
 import { catchBall, hit, passBall, shootBall } from '../packages/game/src/ball.ts';
 import { scoreGoal, updateBall, updatePickups } from '../packages/game/src/physics.ts';
@@ -97,20 +97,20 @@ describe('partido y pelota',()=>{
   });
   it('detecta un tiro rápido que atraviesa la línea sin duplicar goles',()=>{
     const game=playing(),s=game.state;s.players.forEach(p=>p.z=10);
-    Object.assign(s.ball,{owner:null,x:23,z:0,y:1,vx:100,vz:0,vy:0,lastTouch:'0-0',lastTeam:0,pickupLock:1});
+    Object.assign(s.ball,{owner:null,x:FIELD.halfWidth-1,z:0,y:1,vx:100,vz:0,vy:0,lastTouch:'0-0',lastTeam:0,pickupLock:1});
     updateBall(s,1/30);expect(s.score).toEqual([1,0]);game.step();expect(s.score).toEqual([1,0]);
   });
   it('rebota fuera del arco y por encima del travesaño',()=>{
     const game=playing(),s=game.state;s.players.forEach(p=>p.z=-10);
-    Object.assign(s.ball,{owner:null,x:23,z:7,y:.4,vx:100,vz:0,vy:0});updateBall(s,1/30);
+    Object.assign(s.ball,{owner:null,x:FIELD.halfWidth-1,z:7,y:.4,vx:100,vz:0,vy:0});updateBall(s,1/30);
     expect(s.ball.vx).toBeLessThan(0);expect(s.score).toEqual([0,0]);
-    Object.assign(s.ball,{owner:null,x:23,z:0,y:5,vx:100,vz:0,vy:0});updateBall(s,1/30);
+    Object.assign(s.ball,{owner:null,x:FIELD.halfWidth-1,z:0,y:5,vx:100,vz:0,vy:0});updateBall(s,1/30);
     expect(s.ball.vx).toBeLessThan(0);expect(s.score).toEqual([0,0]);
   });
   it('los arqueros atajan automáticamente sin recibir aturdimiento',()=>{
     const game=playing(),s=game.state,keeper=s.players.find(p=>p.id==='1-4')!;
-    keeper.x=22;keeper.z=0;keeper.aiTimer=0;
-    Object.assign(s.ball,{owner:null,x:20,z:0,y:1,vx:80,vz:0,vy:0,lastTouch:'0-0',lastTeam:0,shot:true,pickupLock:0});
+    keeper.x=FIELD.halfWidth-FIELD.keeperInset;keeper.z=0;keeper.aiTimer=0;
+    Object.assign(s.ball,{owner:null,x:keeper.x-2,z:0,y:1,vx:80,vz:0,vy:0,lastTouch:'0-0',lastTeam:0,shot:true,pickupLock:0});
     updateBall(s,1/30);expect(s.ball.owner).toBe(keeper.id);
     expect(hit(s,keeper,1,0,20,.8)).toBe(false);expect(keeper.stun).toBe(0);
   });
@@ -176,7 +176,7 @@ describe('poderes y límites',()=>{
   it('crea objetos en posiciones simétricas sin consultar el marcador',()=>{
     const game=playing();game.state.score=[9,0];game.state.itemTimer=0;updatePickups(game.state,.03);
     const items=game.state.pickups.filter(p=>p.kind!=='orb');
-    expect(items.map(p=>p.z)).toEqual([-10,10]);expect(items.every(p=>p.x===0)).toBe(true);
+    expect(items.map(p=>p.z)).toEqual([-FIELD.halfDepth*.72,FIELD.halfDepth*.72]);expect(items.every(p=>p.x===0)).toBe(true);
   });
 });
 describe('simulación y protocolo',()=>{
@@ -194,6 +194,6 @@ describe('simulación y protocolo',()=>{
     const a=new Game(76),b=new Game(76);a.state.phase='playing';b.state.phase='playing';
     for(let i=0;i<21000;i++){a.step();b.step();}
     expect(a.state).toEqual(b.state);expect(a.state.score[0]+a.state.score[1]).toBeGreaterThan(0);
-    for(const p of a.state.players){expect(Number.isFinite(p.x)).toBe(true);expect(Math.abs(p.x)).toBeLessThan(24);expect(Math.abs(p.z)).toBeLessThan(14);}
+    for(const p of a.state.players){expect(Number.isFinite(p.x)).toBe(true);expect(Math.abs(p.x)).toBeLessThan(FIELD.halfWidth);expect(Math.abs(p.z)).toBeLessThan(FIELD.halfDepth);}
   });
 });

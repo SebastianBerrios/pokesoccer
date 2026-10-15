@@ -5,7 +5,7 @@ import { drawPokemon } from './models.ts';
 import { Controls, type Binding } from './input.ts';
 import { LocalTransport, OnlineTransport } from './transport.ts';
 import { Game, POKEMON, ROSTER, ITEM_LABELS, controlled, moveFighter } from '../../../packages/game/src/index.ts';
-import type { GameTransport, MatchState, Species, Team, InputFrame } from '../../../packages/game/src/types.ts';
+import type { GameTransport, MatchState, Species, Team, InputFrame, Pace, Difficulty } from '../../../packages/game/src/types.ts';
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
 const esc=(value:unknown)=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
@@ -19,9 +19,9 @@ app.innerHTML=`
     <section id="home" class="home">
       <div class="hero-copy"><p class="eyebrow"><span></span> FÚTBOL. PODERES. CAOS.</p>
         <h1>La cancha<br>es de <em>todos.</em></h1>
-        <p class="hero-description">Arma tu equipo, carga tus poderes y cambia el partido.<br>Cuatro en cancha. Un arquero bot. Cero excusas.</p>
+        <p class="hero-description">Arma tu equipo, carga tus poderes y cambia el partido.<br>Cuatro en cancha. Atajadas automáticas. Tú eliges el saque.</p>
         <div class="hero-actions"><button id="solo-button" class="button primary">Jugar ahora <span>↗</span></button><button id="online-button" class="button secondary">Invitar amigos <span>＋</span></button></div>
-        <div class="mode-note"><span class="keycap">W A S D</span> Teclado o mando <span class="dot">·</span> Gratis, en tu navegador</div>
+        <div class="mode-note"><span class="keycap">↑ ← ↓ → + A S D</span> Teclado o mando <span class="dot">·</span> Gratis, en tu navegador</div>
         <div class="hero-stats"><div><strong>12</strong><span>POKÉMON</span></div><div><strong>36</strong><span>PODERES</span></div><div><strong>4<span>v</span>4</strong><span>HUMANOS + BOTS</span></div></div>
       </div>
       <div id="hero-stage-slot" class="hero-stage-slot"><div class="arena-caption"><span class="live-dot"></span> ESTADIO VERDE <span>01 / NOCHE DE PARTIDO</span></div><div class="stage-decoration">NO HAY BANCA.<br>HAY EQUIPO.</div></div>
@@ -82,7 +82,7 @@ function setView(next:string) {
 }
 function connect(next:GameTransport) {
   transport?.close();transport=next;state=null;lobbyKey='';hudKey='';pendingInputs=[];lastEvent=0;paused=false;
-  next.onStatus=message=>{if(message!=='Conectado')toast(message);};
+  next.onStatus=message=>{if(message==='Conectado'){clearTimeout(toastTimeout);el('toast').hidden=true;}else toast(message);};
   next.onState=(incoming,ack)=>{
     if(transport!==next)return;
     state=incoming;scene.myId=next.sessionId;scene.myTeam=incoming.humans.find(h=>h.id===next.sessionId)?.team??0;
@@ -126,7 +126,7 @@ function onlineDialog() {
 }
 function renderLobby() {
   if(!state||!transport)return;
-  const key=JSON.stringify([state.humans,state.players.map(p=>p.species),state.host,transport.code]);
+  const key=JSON.stringify([state.humans,state.players.map(p=>p.species),state.host,transport.code,state.settings]);
   if(key===lobbyKey)return;lobbyKey=key;
   const me=state.humans.find(h=>h.id===transport!.sessionId);if(!me)return;
   const online=transport instanceof OnlineTransport;
@@ -140,16 +140,23 @@ function renderLobby() {
           <span class="slot-number">0${p.slot+1}</span><img src="${thumbs.get(p.species)}" alt=""><span class="slot-info"><strong>${POKEMON[p.species].name}</strong><small>${h?esc(h.name)+(h.id===me.id?' · TÚ':''):'BOT · '+POKEMON[p.species].role}</small></span>
           <span class="slot-status">${h?(h.ready?'✓':'●'):'✦'}</span>${editable?'<span class="slot-edit">↗</span>':''}</button>`;
       }).join('')}
-      <div class="keeper-row"><span>◌</span><strong>Ditto</strong><span>ARQUERO · SIEMPRE BOT</span></div>
+      <div class="keeper-row"><span>◌</span><strong>Ditto</strong><span>ATAJA SOLO · TÚ SACAS</span></div>
       ${online&&me.team!==team?'<button class="text-button team-switch" data-switch="'+team+'">Pasarme a '+(team===0?'Sol':'Luna')+' →</button>':''}
     </div>`;
   };
   el('lobby').innerHTML=`<div class="lobby-header"><div><button class="text-button" id="back-home">← Volver</button><p class="eyebrow">${online?'SALA PRIVADA':'PARTIDO LOCAL'}</p><h1>Arma tu equipo.</h1><p>Elige tu Pokémon. En cancha puedes cambiar a cualquier compañero bot.</p></div>
     <div class="room-card"><small>${online?'INVITA A TU EQUIPO':'JUEGA A TU RITMO'}</small><strong>${online?transport.code:'TÚ + BOTS'}</strong>${online?'<button id="copy-link" class="text-button">Copiar enlace ↗</button>':'<span>Sin esperar al servidor</span>'}</div></div>
+    <div class="match-settings"><div><small>EL PARTIDO A TU MEDIDA</small><strong>Ritmo y dificultad</strong><span>El anfitrión elige antes de jugar. Todos los bots comparten dificultad.</span></div>
+      <label>Ritmo<select id="pace-setting" ${state.host===me.id?'':'disabled'}><option value="slow">Lento · 75 %</option><option value="balanced">Equilibrado · 90 %</option><option value="fast">Rápido · 105 %</option></select></label>
+      <label>Dificultad<select id="difficulty-setting" ${state.host===me.id?'':'disabled'}><option value="easy">Fácil</option><option value="normal">Normal</option><option value="hard">Difícil</option></select></label></div>
     <div class="teams-grid">${teamHTML(0)}<div class="versus">VS</div>${teamHTML(1)}</div>
     <div class="lobby-bottom"><p>2 × 5 MIN <span>·</span> GOL DE ORO <span>·</span> SIN FALTAS<br><small>${me.captain?'Eres capitán: también eliges los Pokémon de los bots.':'El capitán completa los puestos de bots.'}</small></p>
       <div><button id="ready-button" class="button ${me.ready?'secondary':'primary'}">${me.ready?'✓ Estoy listo':'Estoy listo'} <span>✓</span></button>
       ${state.host===me.id?'<button id="start-match" class="button '+(allReady?'primary':'secondary')+'" '+(allReady?'':'disabled')+'>A la cancha <span>↗</span></button>':'<small>El anfitrión inicia el partido.</small>'}</div></div>`;
+  el<HTMLSelectElement>('pace-setting').value=state.settings.pace;
+  el<HTMLSelectElement>('difficulty-setting').value=state.settings.difficulty;
+  const configure=()=>transport?.send({type:'configure',settings:{pace:el<HTMLSelectElement>('pace-setting').value as Pace,difficulty:el<HTMLSelectElement>('difficulty-setting').value as Difficulty}});
+  el('pace-setting').onchange=configure;el('difficulty-setting').onchange=configure;
   el('back-home').onclick=leave;
   el('ready-button').onclick=()=>transport?.send({type:'ready',ready:!me.ready});
   if(state.host===me.id)el('start-match').onclick=()=>transport?.send({type:'start'});
@@ -178,6 +185,15 @@ function updateHUD() {
   el('period').textContent=state.half===3?'GOL DE ORO':state.half===1?'PRIMER TIEMPO':'SEGUNDO TIEMPO';
   el('connection-label').textContent=transport instanceof OnlineTransport?'SALA '+transport.code+' · '+transport.rtt+' ms':'PARTIDO LOCAL · SIN SERVIDOR';
   el('pause-button').hidden=transport instanceof OnlineTransport;
+  if(p.keeper) {
+    const hold=state.keeperPossession;
+    const target=state.players.find(q=>q.id===hold?.targetId);
+    hudKey='keeper';
+    el('player-hud').innerHTML='<div class="keeper-icon">◌</div><div><small>CONTROLAS EL SAQUE</small><strong>Ditto</strong><span>Apunta con '+(controls.gamepad?'el stick':['up','left','down','right'].map(k=>controls.label(k as Binding)).join(' '))+'</span></div>';
+    el('powers-hud').innerHTML='<div class="keeper-target"><small>DESTINATARIO</small><strong>'+(target?POKEMON[target.species].name:'Apunta a un compañero')+'</strong><span>El pase puede disputarse al salir</span></div>';
+    el('item-hud').innerHTML='<div class="keeper-countdown" role="timer" aria-label="Tiempo de saque"><strong>'+Math.ceil(hold?.remaining??0)+'</strong><span>SEGUNDOS</span></div>';
+    el('control-hints').innerHTML=['pass','lob','shoot'].map((k,i)=>'<b>'+(controls.gamepad?['A','Y','X'][i]:controls.label(k as Binding))+'</b> '+['PASE RASO','PASE ELEVADO','DESPEJE LARGO'][i]).join(' <span>·</span> ');
+  } else {
   if(hudKey!==p.species+controls.gamepad) {
     hudKey=p.species+controls.gamepad;
     el('player-hud').innerHTML=`<img src="${thumbs.get(p.species)}" alt=""><div><small>CONTROLAS A</small><strong>${pokemon.name}</strong><div class="stamina-track"><i id="stamina"></i></div></div>`;
@@ -189,6 +205,7 @@ function updateHUD() {
   const amounts=[(1-p.simpleCd/6)*100,p.normal,p.special];
   amounts.forEach((amount,i)=>{el('power-'+i).style.width=amount+'%';el('power-state-'+i).textContent=amount>=99.9?'●':i===0?Math.ceil(p.simpleCd)+'s':Math.floor(amount)+'%';});
   el('item-hud').innerHTML='<span class="power-key">'+(controls.gamepad?'LB+B':controls.label('item'))+'</span><small>OBJETO</small><strong>'+(p.item?ITEM_LABELS[p.item]:'Sin objeto')+'</strong>';
+  }
   const overlay=el('phase-overlay');overlay.hidden=!paused&&['playing','overtime'].includes(state.phase);
   if(paused)overlay.innerHTML='<small>RESPIRA. LA CANCHA TE ESPERA.</small><strong>En pausa</strong><span>Presiona Esc para continuar</span>';
   else if(state.phase==='kickoff')overlay.innerHTML='<small>'+ (state.half===3?'EL PRÓXIMO GOL GANA':'PREPARA TU PRIMERA JUGADA')+'</small><strong>'+Math.max(1,Math.ceil(state.phaseTime))+'</strong>';
@@ -212,7 +229,9 @@ function togglePause() {
 }
 function help() {
   const labels:Record<Binding,string>={up:'Arriba',down:'Abajo',left:'Izquierda',right:'Derecha',pass:'Pase',shoot:'Tiro / entrada',lob:'Pase elevado',dodge:'Esquiva',sprint:'Sprint',switch:'Cambiar Pokémon',simple:'Poder simple',normal:'Poder normal',special:'Poder especial',item:'Usar objeto'};
-  showDialog(`<div class="help-dialog"><p class="eyebrow">EN DOS MINUTOS ESTÁS JUGANDO</p><h2>La pelota primero.<br>El caos después.</h2><p class="dialog-intro">Mantén el tiro para cargarlo y suelta para rematar. Sin pelota, el mismo botón hace una entrada. Al pasar a un bot, lo controlarás cuando reciba.</p><div class="help-columns"><div><h3>Teclado <small>Haz clic para reasignar</small></h3><div class="binding-list">${Object.entries(labels).map(([key,label])=>'<button data-bind="'+key+'"><span>'+label+'</span><kbd>'+controls.label(key as Binding)+'</kbd></button>').join('')}</div></div><div><h3>Mando</h3><p>Stick izquierdo: movimiento y dirección.<br><br>A: pase · X: tiro / entrada<br>Y: pase elevado · B: esquiva<br>RB: sprint · LT: cambio<br><br>Mantén LB y pulsa:<br>A: simple · X: normal<br>Y: especial · B: objeto</p><h3>Tres formas de cargar</h3><p><b>Simple:</b> espera seis segundos.<br><b>Normal:</b> pasa, recupera y remata.<br><b>Especial:</b> recoge el orbe dorado.<br><br>Los poderes pertenecen al Pokémon, también cuando cambias de control.</p></div></div></div>`);
+  showDialog(`<div class="help-dialog"><p class="eyebrow">EN DOS MINUTOS ESTÁS JUGANDO</p><h2>La pelota primero.<br>El caos después.</h2><p class="dialog-intro">Mantén el tiro para cargarlo y suelta para rematar. Sin pelota, el mismo botón hace una entrada. Cada recuperación de un bot aliado te entrega el control. Al pasar, tendrás prioridad sobre el receptor.</p><div class="help-columns"><div><h3>Teclado <small>Haz clic para reasignar</small></h3><div class="control-presets"><button class="text-button" id="preset-arrows">Flechas + A/S/D</button><button class="text-button" id="preset-wasd">WASD + J/K/L</button></div><div class="binding-list">${Object.entries(labels).map(([key,label])=>'<button data-bind="'+key+'"><span>'+label+'</span><kbd>'+controls.label(key as Binding)+'</kbd></button>').join('')}</div></div><div><h3>Mando</h3><p>Stick izquierdo: movimiento y dirección.<br><br>A: pase · X: tiro / entrada<br>Y: pase elevado · B: esquiva<br>RB: sprint · LT: cambio<br><br>Mantén LB y pulsa:<br>A: simple · X: normal<br>Y: especial · B: objeto</p><h3>Saque de Ditto · 8 segundos</h3><p>Ataja automáticamente. Durante el saque, apunta con las direcciones; pase raso, pase elevado o tiro para despejar. Con mando: A / Y / X, también con LB. No se mueve ni usa poderes. Puedes sacar rápido; al salir la pelota termina la protección del área.</p><h3>Tres formas de cargar</h3><p><b>Simple:</b> espera seis segundos.<br><b>Normal:</b> pasa, recupera y remata.<br><b>Especial:</b> recoge el orbe dorado.<br><br>Los poderes pertenecen al Pokémon, también cuando cambias de control.</p></div></div></div>`);
+  el('preset-arrows').onclick=()=>{controls.preset('arrows');hudKey='';help();};
+  el('preset-wasd').onclick=()=>{controls.preset('wasd');hudKey='';help();};
   el('dialog-body').querySelectorAll<HTMLButtonElement>('[data-bind]').forEach(button=>button.onclick=()=>{
     button.querySelector('kbd')!.textContent='Pulsa una tecla';
     const listener=(event:KeyboardEvent)=>{event.preventDefault();event.stopPropagation();if(event.code!=='Escape')controls.rebind(button.dataset.bind as Binding,event.code);window.removeEventListener('keydown',listener,true);el('dialog-body').querySelectorAll<HTMLButtonElement>('[data-bind]').forEach(key=>key.querySelector('kbd')!.textContent=controls.label(key.dataset.bind as Binding));hudKey='';};
@@ -252,12 +271,12 @@ function frame(now:number) {
     if(!active)pendingInputs=[];
     if(p&&active&&now-lastSend>=1000/30) {
       lastSend=now-(now-lastSend)%(1000/30);
-      const input=controls.read(p.epoch);transport.send({type:'input',input});pendingInputs.push(input);
+      const input=controls.read(p.epoch,p.keeper);transport.send({type:'input',input});pendingInputs.push(input);
       if(pendingInputs.length>30)pendingInputs.shift();
     }
     if(p&&active&&transport instanceof OnlineTransport) {
       const predicted={...p};
-      for(const input of pendingInputs)if(input.epoch===p.epoch)moveFighter(predicted,input,1/30);
+      for(const input of pendingInputs)if(input.epoch===p.epoch)moveFighter(predicted,input,1/30,state.settings);
       scene.predicted={x:predicted.x,z:predicted.z};
     }else scene.predicted=null;
   }

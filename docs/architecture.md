@@ -26,12 +26,32 @@ Cada personaje dispone de una época de control única. Cambiar a un bot, recone
 
 - Diez personajes por sala: cuatro de campo y un arquero por equipo; como máximo cuatro humanos por lado.
 - Un humano controla exactamente un personaje. Solo se transfiere a bots del mismo equipo. Las cargas y objetos no se transfieren.
-- El pase asistido puede cambiar al receptor cuando este recibe; no reemplaza a un controlador humano.
+- Toda adquisición de un bot de campo transfiere el control al humano conectado más cercano. El autor de un pase dirigido tiene prioridad mientras no cambie manualmente; los empates se resuelven por id y nunca se desplaza a otro humano.
 - Simple: 6 s. Normal: 100 puntos; pase completado, recuperación o tiro atajado dan 25, gol da 50. Máximo 50 por pases para cada Pokémon durante una posesión del equipo.
 - Especial: orbe neutral cada 30 s; una carga no se acumula con otra. Preparación de 0,8 s, interrumpible, consumiendo al comenzar. Intentos inválidos no consumen.
 - Aturdimiento máximo 0,8 s y protección posterior de 1,2 s; ralentización máxima 40 %. No hay daño ni tabla de debilidades.
-- Reloj detenido durante saque, gol y descanso. Cada gol suma uno.
-- Bots usan los mismos movimientos, cargas, objetos y reglas que humanos; los arqueros son automáticos y no tienen poderes.
+- Reloj detenido durante saque inicial, gol y descanso. El saque del arquero mantiene el reloj activo. Cada gol suma uno.
+- Bots usan los mismos movimientos, cargas, objetos y reglas que humanos. Ditto ataja automáticamente, sin poderes, y solo acepta control temporal para dirigir su saque.
+
+## Geometría y ajustes compartidos
+
+[geometry.ts](../packages/game/src/geometry.ts) define el campo de 60 × 36, área de 8 × 12, dimensiones de arcos y márgenes. Movimiento, rebotes, poderes, posiciones, objetos, estadio y cámara usan esta fuente. La cámara calcula un encuadre ortográfico para las esquinas y los indicadores, según la proporción del viewport.
+
+El comando `configure` transporta `MatchSettings` por worker y WebSocket. `Game.configure` valida anfitrión conectado, lobby y valores permitidos, e invalida todos los listos. `rematch` conserva ajustes. `moveFighter` recibe las mismas opciones en servidor y predicción: solo carrera y sprint usan el factor de ritmo.
+
+## Posesión y saque de Ditto
+
+`catchBall` centraliza adquisiciones; `assignPossession` elige al humano y `transfer` renueva épocas. El motor exige una entrada sin pulsar cada acción antes de aceptar una nueva pulsación tras un relevo. El cliente también filtra pulsaciones sostenidas. Los reinicios renuevan épocas y asignan al sacador cuando es un bot.
+
+`KeeperPossession` es un estado temporal dentro del partido activo, con captura, ocho segundos restantes, controlador, personaje anterior, destinatario y destinos de retirada. El arquero permanece inmóvil mientras retiene el balón. `keepers.ts` procesa raso/elevado/despeje y distribuye al vencer el contador; sin controlador espera un segundo desde la captura. Las opciones automáticas evalúan rivales visibles, distancia a la línea y espacio del receptor; si no hay línea segura, despejan elevado.
+
+La retirada sustituye las entradas de rivales humanos y bots dentro del área. La restricción geométrica se aplica al movimiento, al teletransporte y tras cada subpaso de fuerzas/efectos. Soltar el balón elimina inmediatamente retirada y protección. Al pasar a un bot el control cambia al soltar; para otro humano o despeje se restaura el personaje anterior o uno libre. Desconectar activa distribución automática. Fin de período, gol, posiciones nuevas y final cierran el estado sin dejar humanos ligados a Ditto.
+
+## Tácticas y dificultad
+
+`tactics.ts` asigna espacios de referencia 1–2–1 a partir de posesión y posiciones humanas. Con balón conserva cobertura, amplitud y una opción adelantada; el portador ocupa un espacio y los demás se separan. Sin balón conserva un presionante válido, y el resto cubre espacios y líneas hacia rivales visibles. Solo un bot puede recoger un objeto, sin abandonar cobertura ni presión.
+
+`ai.ts` usa esas asignaciones y evalúa líneas de pase y tiro antes de conducir hacia el arco. Los roles no consultan la especie. La dificultad solo cambia el intervalo de decisión: fácil 350–500 ms, normal 180–300 ms y difícil 100–160 ms, con la semilla compartida. Movimiento y sprint continúan entre decisiones, con las mismas reglas físicas. Un rival invisible no actualiza el foco: se usa la última posición visible.
 
 ## Red y límites
 

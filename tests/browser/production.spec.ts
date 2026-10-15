@@ -23,7 +23,7 @@ test('el build estático ejecuta el partido sin servidor de juego ni red despué
     await page.waitForFunction(()=>(window as any).__pokesoccer.state.phase==='playing');
     await context.setOffline(true);
     const before=await page.evaluate(()=>{const d=(window as any).__pokesoccer;return d.state.players.find((p:any)=>p.controller===d.session).x;});
-    await page.keyboard.down('d');await page.waitForTimeout(600);await page.keyboard.up('d');
+    await page.keyboard.down('ArrowRight');await page.waitForTimeout(600);await page.keyboard.up('ArrowRight');
     const after=await page.evaluate(()=>{const d=(window as any).__pokesoccer;return d.state.players.find((p:any)=>p.controller===d.session).x;});
     expect(after).toBeGreaterThan(before+1);expect(sockets).toEqual([]);expect(errors).toEqual([]);
     await page.waitForTimeout(1500);

@@ -1,7 +1,15 @@
 import { DEFAULT_TEAMS, FIELD, POKEMON } from './catalog.ts';
-import type { Ball, Fighter, Human, InputFrame, MatchState, Species, Team } from './types.ts';
-import { clamp, unit } from './math.ts';
+import type { Ball, Fighter, Human, InputFrame, MatchState, Species, Team, MatchSettings, Vec } from './types.ts';
+import { areaExit, fieldPoint, inArea } from './geometry.ts';
+import { clamp, distance, unit } from './math.ts';
 
+export const DEFAULT_SETTINGS: MatchSettings = { pace: 'balanced', difficulty: 'normal' };
+export const PACE_MULTIPLIER = { slow: .75, balanced: .9, fast: 1.05 } as const;
+export function validSettings(raw: unknown): raw is MatchSettings {
+  if (!raw || typeof raw !== 'object') return false;
+  const settings = raw as MatchSettings;
+  return ['slow', 'balanced', 'fast'].includes(settings.pace) && ['easy', 'normal', 'hard'].includes(settings.difficulty);
+}
 export function emptyInput(epoch = 0, seq = 0): InputFrame {
   return { seq, epoch, moveX:0, moveZ:0, pass:false,lob:false,shoot:false,dodge:false,sprint:false,switch:false,simple:false,normal:false,special:false,item:false };
 }
@@ -21,13 +29,13 @@ export function fighter(team: Team, slot: number, species: Species, keeper=false
     controller:null,epoch:0,stamina:100,simpleCd:0,normal:0,special:0,item:null,
     stun:0,immunity:0,slow:0,slowTime:0,shield:0,boost:0,buff:0,cloak:0,noSprint:0,
     actionCd:0,dodgeTime:0,charge:0,cast:0,castSlot:-1,castX:1,castZ:0,
-    aiTimer:0,aiX:0,aiZ:0,aiShoot:false,passCredit:0,anim:'idle' };
+    aiTimer:0,aiX:0,aiZ:0,aiShoot:false,aiSprint:false,passCredit:0,anim:'idle' };
 }
 export function freshBall(): Ball {
   return {x:0,z:0,y:.35,vx:0,vy:0,vz:0,owner:null,lastTouch:null,passer:null,passSession:null,passTarget:null,shot:false,pickupLock:0,curve:0,fiery:0,lastTeam:null};
 }
 export function createState(seed=12345, regulation=300, overtime=120): MatchState {
-  const state: MatchState = {version:1,tick:0,time:0,phase:'lobby',remaining:regulation,phaseTime:0,half:1,score:[0,0],
+  const state: MatchState = {settings:{...DEFAULT_SETTINGS},keeperPossession:null,tactics:[0,1].map(()=>({focus:{x:0,z:0},presser:null,collector:null,roles:{},targets:{}})) as MatchState['tactics'],version:1,tick:0,time:0,phase:'lobby',remaining:regulation,phaseTime:0,half:1,score:[0,0],
     players:[],ball:freshBall(),effects:[],pickups:[],humans:[],host:null,events:[],seed,nextId:1,
     orbTimer:30,itemTimer:20,possession:null,regulation,overtime,winner:null};
   for (const team of [0,1] as Team[]) {
@@ -41,17 +49,21 @@ export function attackDirection(s: MatchState, team: Team): number {
   return s.half===2 ? -base : base;
 }
 export function resetPositions(s: MatchState, kickoff: Team) {
+  endKeeperPossession(s);
+  for (const t of s.tactics) {t.focus={x:0,z:0};t.presser=null;t.collector=null;t.roles={};t.targets={};}
   for (const p of s.players) {
     const dir=attackDirection(s,p.team);
-    p.x=-dir*(p.keeper?22:[6,12,12,17][p.slot]); p.z=p.keeper?0:[0,-8,8,0][p.slot];
+    p.x=-dir*(p.keeper?FIELD.halfWidth-FIELD.keeperInset:FIELD.halfWidth*[.25,.5,.5,.72][p.slot]); p.z=p.keeper?0:[0,-FIELD.halfDepth*.6,FIELD.halfDepth*.6,0][p.slot];
     p.vx=0;p.vz=0;p.stun=0;p.immunity=1;p.cast=0;p.castSlot=-1;p.charge=0;p.anim='idle';p.facingX=dir;p.facingZ=0;
-    p.aiTimer=.3;
+    p.aiTimer=.3;p.aiX=0;p.aiZ=0;p.aiShoot=false;p.aiSprint=false;
+    if(p.controller)p.epoch=s.nextId++;
   }
   s.ball=freshBall(); s.effects=[];
   const taker=s.players.find(p=>p.team===kickoff&&p.slot===0)!;
   taker.x=-attackDirection(s,kickoff)*1; taker.z=0;
   s.ball.owner=taker.id; s.ball.lastTouch=taker.id;s.ball.lastTeam=kickoff;
   s.possession=kickoff;
+  assignPossession(s,taker);
 }
 export function random(s: MatchState): number {
   s.seed=(Math.imul(s.seed,1664525)+1013904223)>>>0; return s.seed/4294967296;
@@ -63,13 +75,13 @@ export function event(s: MatchState, kind:string, text:string, actor?:Fighter) {
 export function byId(s:MatchState,id:string|null|undefined) { return s.players.find(p=>p.id===id); }
 export function controlled(s:MatchState,id:string) { return s.players.find(p=>p.controller===id); }
 export function transfer(s:MatchState, human:Human, target:Fighter): boolean {
-  if(target.keeper || target.team!==human.team || target.controller!==null) return false;
+  if(!human.connected || target.team!==human.team || target.controller!==null || target.keeper && (s.keeperPossession?.keeperId!==target.id || s.ball.owner!==target.id)) return false;
   const old=controlled(s,human.id);
   if(old) {old.controller=null;old.epoch=s.nextId++;old.charge=0;}
-  target.controller=human.id;target.epoch=s.nextId++;target.charge=0;human.fighterId=target.id;
+  target.controller=human.id;target.epoch=s.nextId++;target.charge=0;target.aiTimer=0;target.aiShoot=false;target.aiSprint=false;human.fighterId=target.id;
   return true;
 }
-export function movementSpeed(p:Fighter, sprint=false): number {
+export function movementSpeed(p:Fighter, sprint=false, settings:MatchSettings=DEFAULT_SETTINGS): number {
   const stats=POKEMON[p.species]?.stats ?? [3,3,3,3];
   let speed=5.8+stats[0]*.42;
   if(sprint&&p.stamina>0&&p.noSprint<=0)speed*=1.45;
@@ -78,13 +90,62 @@ export function movementSpeed(p:Fighter, sprint=false): number {
   if(p.buff>0&&p.species==='snorlax')speed*=.65;
   if(p.slowTime>0)speed*=1-Math.min(.4,p.slow);
   if(p.charge>0)speed*=.55;
-  return speed;
+  return speed*(p.keeper?1:PACE_MULTIPLIER[settings.pace]);
 }
-export function moveFighter(p:Fighter,input:Pick<InputFrame,'moveX'|'moveZ'|'sprint'>,dt:number) {
-  if(p.stun>0||p.cast>0) return;
-  const speed=movementSpeed(p,input.sprint);
-  p.x=clamp(p.x+input.moveX*speed*dt,-FIELD.halfWidth+.65,FIELD.halfWidth-.65);
-  p.z=clamp(p.z+input.moveZ*speed*dt,-FIELD.halfDepth+.65,FIELD.halfDepth-.65);
+export function moveFighter(p:Fighter,input:Pick<InputFrame,'moveX'|'moveZ'|'sprint'>,dt:number,settings:MatchSettings=DEFAULT_SETTINGS) {
+  if(p.keeper||p.stun>0||p.cast>0) return;
+  const speed=movementSpeed(p,input.sprint,settings);
+  p.x=clamp(p.x+input.moveX*speed*dt,-FIELD.halfWidth+FIELD.playerRadius,FIELD.halfWidth-FIELD.playerRadius);
+  p.z=clamp(p.z+input.moveZ*speed*dt,-FIELD.halfDepth+FIELD.playerRadius,FIELD.halfDepth-FIELD.playerRadius);
   if(Math.hypot(input.moveX,input.moveZ)>.1) {const v=unit(input.moveX,input.moveZ);p.facingX=v.x;p.facingZ=v.z;p.anim='run';}
   else p.anim='idle';
+}
+
+// All control acquisition goes through one deterministic choice, including rebounds.
+export function assignPossession(s: MatchState, target: Fighter, preferred: string | null = null) {
+  if (target.controller || target.keeper) return;
+  const humans = s.humans.filter(h => h.connected && h.team === target.team && controlled(s, h.id));
+  humans.sort((a, b) => Number(b.id === preferred) - Number(a.id === preferred) ||
+    distance(controlled(s, a.id)!, target) - distance(controlled(s, b.id)!, target) || a.id.localeCompare(b.id));
+  if (humans[0]) transfer(s, humans[0], target);
+}
+export function beginKeeperPossession(s: MatchState, keeper: Fighter) {
+  endKeeperPossession(s);
+  const humans = s.humans.filter(h => h.connected && h.team === keeper.team && controlled(s, h.id));
+  humans.sort((a, b) => distance(controlled(s, a.id)!, keeper) - distance(controlled(s, b.id)!, keeper) || a.id.localeCompare(b.id));
+  const human = humans[0];
+  const hold = s.keeperPossession = { keeperId: keeper.id, capturedAt: s.time, remaining: 8,
+    controller: human?.id ?? null, previousFighterId: human?.fighterId ?? null,
+    targetId: null as string | null, retreat: {} as Record<string, Vec> };
+  const dir = attackDirection(s, keeper.team);
+  for (const p of s.players) if (p.team !== keeper.team && !p.keeper && inArea(p, dir, FIELD.playerRadius)) {
+    hold.retreat[p.id] = areaExit(p, dir); p.vx = 0; p.vz = 0; p.cast = 0; p.castSlot = -1; p.charge = 0;
+  }
+  keeper.facingX = dir; keeper.facingZ = 0; keeper.actionCd = 0;
+  if (human) transfer(s, human, keeper);
+}
+export function endKeeperPossession(s: MatchState, recipient?: Fighter) {
+  const hold = s.keeperPossession;
+  if (!hold) return;
+  s.keeperPossession = null;
+  if(s.ball.owner===hold.keeperId)s.ball.owner=null;
+  const keeper = byId(s, hold.keeperId);
+  const human = s.humans.find(h => h.id === hold.controller && h.connected);
+  if (keeper?.controller) {keeper.controller = null; keeper.epoch = s.nextId++;}
+  if (!human) return;
+  const available = (p: Fighter | undefined): p is Fighter => !!p && !p.keeper && p.team === human.team && !p.controller;
+  const prior = byId(s, hold.previousFighterId);
+  const target = available(recipient) ? recipient : available(prior) ? prior : s.players.find(available);
+  if (target) transfer(s, human, target);
+}
+export function constrainKeeperArea(s: MatchState, p: Fighter, previous?: Vec) {
+  const hold = s.keeperPossession, keeper = hold && byId(s, hold.keeperId);
+  if (!hold || !keeper || p.team === keeper.team || p.keeper) return;
+  const dir = attackDirection(s, keeper.team);
+  if (!inArea(p, dir, FIELD.playerRadius)) {delete hold.retreat[p.id]; return;}
+  const exit = hold.retreat[p.id];
+  if (exit && previous && inArea(previous, dir, FIELD.playerRadius) && distance(p, exit) <= distance(previous, exit) + .00001) return;
+  Object.assign(p, previous && !inArea(previous, dir, FIELD.playerRadius) ? previous : areaExit(p, dir));
+  Object.assign(p, fieldPoint(p)); p.vx = 0; p.vz = 0;
+  delete hold.retreat[p.id];
 }

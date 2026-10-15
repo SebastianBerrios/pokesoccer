@@ -96,6 +96,7 @@ export function createGameServer(options:ServerOptions={}) {
           case 'input':game.input(id,message.input);break;
           case 'choose':game.choose(id,message.slot,message.species);break;
           case 'team':game.changeTeam(id,message.team);break;
+          case 'configure':game.configure(id,message.settings);break;
           case 'ready':game.ready(id,message.ready===true);break;
           case 'start':game.start(id);break;
           case 'rematch':game.rematch(id);break;

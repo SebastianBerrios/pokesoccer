@@ -1,6 +1,6 @@
 import { FIELD, POKEMON } from './catalog.ts';
 import { clamp, distance, unit } from './math.ts';
-import { attackDirection, byId, controlled, event, transfer } from './state.ts';
+import { attackDirection, assignPossession, beginKeeperPossession, byId, event } from './state.ts';
 import type { Fighter, MatchState } from './types.ts';
 
 export function gain(p:Fighter,amount:number) { if(!p.keeper) p.normal=Math.min(100,p.normal+amount); }
@@ -30,27 +30,29 @@ export function hit(s:MatchState,target:Fighter,dx:number,dz:number,power:number
 export function catchBall(s:MatchState,p:Fighter) {
   const b=s.ball;
   const passer=byId(s,b.passer), oldTeam=b.lastTeam;
+  const preferred=b.passTarget===p.id&&passer?.team===p.team?b.passSession:null;
   if(passer&&passer.team===p.team&&passer.id!==p.id&&!p.keeper) {
     const reward=Math.min(25,50-passer.passCredit);gain(passer,reward);passer.passCredit+=reward;
-    if(b.passTarget===p.id&&b.passSession&&p.controller===null) {
-      const h=s.humans.find(h=>h.id===b.passSession&&h.connected);
-      if(h&&controlled(s,h.id)?.id===passer.id) transfer(s,h,p);
-    }
   } else if(oldTeam!==null&&oldTeam!==p.team&&!p.keeper) gain(p,25);
   if(p.keeper&&b.shot) {const shooter=byId(s,b.lastTouch);if(shooter)gain(shooter,25);event(s,'save','¡Atajada!',p);}
   possession(s,p.team);
   b.owner=p.id;b.lastTouch=p.id;b.lastTeam=p.team;b.passer=null;b.passTarget=null;b.passSession=null;b.shot=false;b.curve=0;b.fiery=0;
-  b.vx=0;b.vy=0;b.vz=0;p.aiTimer=p.keeper?.65:p.aiTimer;p.charge=0;
+  b.vx=0;b.vy=0;b.vz=0;p.aiTimer=0;p.charge=0;
+  if(p.keeper)beginKeeperPossession(s,p);else assignPossession(s,p,preferred);
 }
-export function passBall(s:MatchState,p:Fighter,lob=false) {
-  if(s.ball.owner!==p.id||p.actionCd>0)return;
+export function passTarget(s:MatchState,p:Fighter):Fighter|undefined {
   const dir={x:p.facingX,z:p.facingZ};
   const teammates=s.players.filter(q=>q.team===p.team&&q.id!==p.id&&!q.keeper);
   const scored=teammates.map(q=>{
     const v=unit(q.x-p.x,q.z-p.z), dot=v.x*dir.x+v.z*dir.z;
     return {q,score:dot*14-distance(p,q)*.15};
   }).sort((a,b)=>b.score-a.score);
-  const target=scored[0]?.q;
+  return scored[0]?.q;
+}
+export function passBall(s:MatchState,p:Fighter,lob=false,recipient?:Fighter) {
+  if(s.ball.owner!==p.id||p.actionCd>0)return;
+  const dir=unit(p.facingX,p.facingZ);
+  const target=recipient??passTarget(s,p);
   const v=target?unit(target.x-p.x,target.z-p.z):dir;
   const d=target?distance(p,target):10;
   const speed=lob?Math.max(9,d*.85):18+(POKEMON[p.species]?.stats[3]??3)*.8;
@@ -65,7 +67,7 @@ export function shootBall(s:MatchState,p:Fighter,charge=.35,power=1,curve=0,fier
   if(s.ball.owner!==p.id)return;
   const dir=attackDirection(s,p.team);
   // Shots always travel toward the opponent's goal. Lateral input chooses the corner.
-  const targetZ=clamp(p.facingZ*4,-3.1,3.1);
+  const targetZ=clamp(p.facingZ*4,-FIELD.goalHalf+.5,FIELD.goalHalf-.5);
   const v=unit(dir*FIELD.halfWidth-p.x,targetZ-p.z);
   const stat=POKEMON[p.species]?.stats[2]??3;
   const speed=(19+stat*1.1+clamp(charge,0,1)*9)*power*(p.buff>0&&p.species==='dragonite'?1.15:1);

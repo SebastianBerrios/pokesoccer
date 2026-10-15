@@ -1,6 +1,6 @@
 import { FIELD, POKEMON } from './catalog.ts';
 import { distance, unit, clamp, segmentDistance } from './math.ts';
-import { byId, event } from './state.ts';
+import { byId, event, constrainKeeperArea } from './state.ts';
 import { hit, shootBall } from './ball.ts';
 import type { Ability, Effect, Fighter, MatchState } from './types.ts';
 function effect(s:MatchState,p:Fighter,a:Ability,kind:Effect['kind'],x=p.x,z=p.z):Effect {
@@ -37,6 +37,8 @@ export function finishCast(s:MatchState,p:Fighter) {
   p.facingX=p.castX;p.facingZ=p.castZ;executeAbility(s,p,a);
 }
 export function executeAbility(s:MatchState,p:Fighter,a:Ability) {
+  if(p.keeper)return;
+  const previous={x:p.x,z:p.z};
   p.anim='cast';
   const dx=p.facingX,dz=p.facingZ;
   if(a.kind==='dash') {
@@ -44,7 +46,7 @@ export function executeAbility(s:MatchState,p:Fighter,a:Ability) {
     for(const q of s.players)if(q.team!==p.team&&!q.keeper&&distance(q,p)<3)
       hit(s,q,dx,dz,a.power??6,.35);
   } else if(a.kind==='blink') {
-    p.x=clamp(p.x+dx*a.range,-23,23);p.z=clamp(p.z+dz*a.range,-13,13);
+    p.x=clamp(p.x+dx*a.range,-FIELD.halfWidth+1,FIELD.halfWidth-1);p.z=clamp(p.z+dz*a.range,-FIELD.halfDepth+1,FIELD.halfDepth-1);
     effect(s,p,{...a,duration:.4,radius:1.5},'burst');
   } else if(a.kind==='push') {
     for(const q of s.players) {
@@ -62,9 +64,9 @@ export function executeAbility(s:MatchState,p:Fighter,a:Ability) {
       e.radius=a.radius===3?.6:a.radius;
     }
   } else if(a.kind==='zone') {
-    effect(s,p,a,'zone',clamp(p.x+dx*a.range,-23,23),clamp(p.z+dz*a.range,-13,13));
+    effect(s,p,a,'zone',clamp(p.x+dx*a.range,-FIELD.halfWidth+1,FIELD.halfWidth-1),clamp(p.z+dz*a.range,-FIELD.halfDepth+1,FIELD.halfDepth-1));
   } else if(a.kind==='wall') {
-    const e=effect(s,p,a,'wall',clamp(p.x+dx*a.range,-22,22),clamp(p.z+dz*a.range,-12,12));
+    const e=effect(s,p,a,'wall',clamp(p.x+dx*a.range,-FIELD.halfWidth+2,FIELD.halfWidth-2),clamp(p.z+dz*a.range,-FIELD.halfDepth+2,FIELD.halfDepth-2));
     e.reflect=p.species==='alakazam';
   } else if(a.kind==='shield') p.shield=a.duration;
   else if(a.kind==='buff') p.buff=a.duration;
@@ -72,9 +74,10 @@ export function executeAbility(s:MatchState,p:Fighter,a:Ability) {
   else if(a.kind==='pull') {const v=unit(p.x-s.ball.x,p.z-s.ball.z);s.ball.vx=v.x*16;s.ball.vz=v.z*16;s.ball.vy=0;}
   else if(a.kind==='redirect') {s.ball.vx=dx*24;s.ball.vz=dz*24;s.ball.vy=1;s.ball.lastTouch=p.id;s.ball.lastTeam=p.team;s.ball.pickupLock=.1;}
   else if(a.kind==='shot') shootBall(s,p,1,a.power??1.3,a.curve??0,a.trail??false);
+  constrainKeeperArea(s,p,previous);
 }
 export function useItem(s:MatchState,p:Fighter):boolean {
-  if(!p.item||p.stun>0||p.cast>0)return false;
+  if(p.keeper||!p.item||p.stun>0||p.cast>0)return false;
   const kind=p.item;p.item=null;
   if(kind==='berry')p.boost=3;
   else if(kind==='shield')p.shield=4;

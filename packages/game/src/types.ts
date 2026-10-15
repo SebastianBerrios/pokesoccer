@@ -28,7 +28,7 @@ export interface Fighter extends Vec {
   shield: number; boost: number; buff: number; cloak: number; noSprint: number;
   actionCd: number; dodgeTime: number; charge: number;
   cast: number; castSlot: number; castX: number; castZ: number;
-  aiTimer: number; aiX: number; aiZ: number; aiShoot: boolean;
+  aiTimer: number; aiX: number; aiZ: number; aiShoot: boolean; aiSprint: boolean;
   passCredit: number; anim: string;
 }
 export interface Ball extends Vec {
@@ -49,7 +49,17 @@ export interface Human {
   id: string; name: string; team: Team; fighterId: string; ready: boolean;
   connected: boolean; captain: boolean;
 }
+export type Pace = 'slow' | 'balanced' | 'fast';
+export type Difficulty = 'easy' | 'normal' | 'hard';
+export interface MatchSettings { pace: Pace; difficulty: Difficulty }
+export type TacticalRole = 'cover' | 'left' | 'right' | 'forward' | 'press' | 'carrier';
+export interface TeamTactics { focus: Vec; presser: string | null; collector: string | null; roles: Record<string, TacticalRole>; targets: Record<string, Vec> }
+export interface KeeperPossession {
+  keeperId: string; capturedAt: number; remaining: number; controller: string | null;
+  previousFighterId: string | null; targetId: string | null; retreat: Record<string, Vec>;
+}
 export interface MatchState {
+  settings: MatchSettings; keeperPossession: KeeperPossession | null; tactics: [TeamTactics, TeamTactics];
   version: 1; tick: number; time: number; phase: Phase; remaining: number; phaseTime: number;
   half: number; score: [number, number]; players: Fighter[]; ball: Ball;
   effects: Effect[]; pickups: Pickup[]; humans: Human[]; host: string | null;
@@ -64,6 +74,7 @@ export type ClientMessage =
   | { type: 'choose'; slot: number; species: Species }
   | { type: 'team'; team: Team }
   | { type: 'ready'; ready: boolean }
+  | { type: 'configure'; settings: MatchSettings }
   | { type: 'start' | 'rematch' | 'leave' }
   | { type: 'ping'; at: number };
 export type ServerMessage =

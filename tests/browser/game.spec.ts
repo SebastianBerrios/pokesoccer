@@ -15,7 +15,7 @@ test('solo: selección, controles, pausa y regreso al inicio',async({page})=>{
   await expect(page.locator('#player-hud')).toContainText('Lucario');
   await page.waitForFunction(()=>['playing','overtime'].includes((window as any).__pokesoccer.state.phase));
   const before=await page.evaluate(()=>{const d=(window as any).__pokesoccer;return d.state.players.find((p:any)=>p.controller===d.session).x;});
-  await page.keyboard.down('d');await page.waitForTimeout(500);await page.keyboard.up('d');
+  await page.keyboard.down('ArrowRight');await page.waitForTimeout(500);await page.keyboard.up('ArrowRight');
   const after=await page.evaluate(()=>{const d=(window as any).__pokesoccer;return d.state.players.find((p:any)=>p.controller===d.session).x;});
   expect(after).toBeGreaterThan(before+1);
   await page.screenshot({path:'.artifacts/match.png',fullPage:true});
@@ -36,6 +36,10 @@ test('online: dos navegadores comparten sala, elección y partido',async({browse
     await q.goto('/?sala='+code);await q.locator('#nickname').fill('Bruno');
     await q.locator('#online-team').selectOption('1');await q.getByRole('button',{name:'Entrar ↗',exact:true}).click();
     await expect(p.locator('.luna')).toContainText('Bruno');
+    await expect(q.locator('#pace-setting')).toBeDisabled();
+    await expect(q.locator('#difficulty-setting')).toBeDisabled();
+    await p.locator('#pace-setting').selectOption('fast');
+    await expect(q.locator('#pace-setting')).toHaveValue('fast');
     await p.getByRole('button',{name:/Estoy listo/}).click();await q.getByRole('button',{name:/Estoy listo/}).click();
     await p.getByRole('button',{name:/A la cancha/}).click();
     await expect(p.locator('#match')).toBeVisible();await expect(q.locator('#match')).toBeVisible();
@@ -46,7 +50,7 @@ test('online: dos navegadores comparten sala, elección y partido',async({browse
     expect(names).toContain('Ana');expect(names).toContain('Bruno');
     await q.waitForFunction(()=>(window as any).__pokesoccer.state.phase==='playing');
     const before=await q.evaluate(()=>{const d=(window as any).__pokesoccer;return d.state.players.find((p:any)=>p.controller===d.session).z;});
-    await q.keyboard.down('s');await q.waitForTimeout(500);await q.keyboard.up('s');
+    await q.keyboard.down('ArrowDown');await q.waitForTimeout(500);await q.keyboard.up('ArrowDown');
     const after=await q.evaluate(()=>{const d=(window as any).__pokesoccer;return d.state.players.find((p:any)=>p.controller===d.session).z;});
     expect(after).toBeGreaterThan(before+1);
   }finally{await a.close();await b.close();}

@@ -59,6 +59,6 @@ export const DEFAULT_TEAMS: [Species[],Species[]] = [
   ['pikachu','charizard','blastoise','venusaur'],
   ['greninja','gengar','lucario','snorlax']
 ];
-export const FIELD = { halfWidth: 24, halfDepth: 14, goalHalf: 3.6, goalHeight: 3.2 };
+export { FIELD } from './geometry.ts';
 export const TICK_RATE = 30;
 export const ITEM_LABELS = { berry:'Baya veloz', shield:'Escudo', bomb:'Bomba de empuje', orb:'Energía especial' };

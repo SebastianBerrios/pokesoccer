@@ -1,16 +1,19 @@
 import { FIELD, POKEMON, ROSTER } from './catalog.ts';
+import { keeperInput, updateKeeperPossession } from './keepers.ts';
+import { updateTactics } from './tactics.ts';
 import { botInput } from './ai.ts';
 import { castAbility, finishCast, updateEffects, useItem } from './abilities.ts';
-import { dropBall, hit, passBall, shootBall } from './ball.ts';
+import { hit, passBall, shootBall } from './ball.ts';
 import { clamp, distance, unit } from './math.ts';
 import { updateBall, updateKeepers, updatePickups, resolvePlayers } from './physics.ts';
-import { attackDirection, controlled, createState, emptyInput, event, moveFighter, resetPositions, sanitizeInput, transfer } from './state.ts';
+import { controlled, createState, emptyInput, event, moveFighter, resetPositions, sanitizeInput, transfer, validSettings, endKeeperPossession, constrainKeeperArea } from './state.ts';
 import type { Fighter, Human, InputFrame, MatchState, Species, Team } from './types.ts';
 
 export class Game {
   state: MatchState;
   private inputs=new Map<string,{frame:InputFrame,at:number}>();
   private previous=new Map<string,InputFrame>();
+  private gates=new Map<string,{epoch:number; blocked:Set<string>}>();
   acks=new Map<string,number>();
   constructor(seed=12345,regulation=300,overtime=120) {this.state=createState(seed,regulation,overtime);}
   addHuman(id:string,name:string,team:Team):Human {
@@ -21,12 +24,15 @@ export class Game {
     if(!p)throw Error('No quedan puestos disponibles.');
     const h:Human={id,name:name.trim().slice(0,20)||'Entrenador',team,fighterId:p.id,ready:false,connected:true,captain:false};
     this.state.humans.push(h);p.controller=id;p.epoch=this.state.nextId++;
+    this.gates.set(id,{epoch:p.epoch,blocked:new Set()});
     if(!this.state.host)this.state.host=id;this.captains();event(this.state,'join',h.name+' entró a la cancha',p);return h;
   }
   disconnect(id:string) {
     const h=this.state.humans.find(h=>h.id===id);if(!h)return;
     h.connected=false;h.ready=false;
     const p=controlled(this.state,id);if(p){p.controller=null;p.epoch=this.state.nextId++;p.charge=0;}
+    const hold=this.state.keeperPossession;
+    if(hold?.controller===id){h.fighterId=hold.previousFighterId??h.fighterId;hold.controller=null;}
     this.inputs.delete(id);this.previous.delete(id);this.acks.delete(id);
     if(this.state.host===id)this.state.host=this.state.humans.find(h=>h.connected)?.id??null;
     this.captains();
@@ -34,13 +40,13 @@ export class Game {
   reconnect(id:string):boolean {
     const h=this.state.humans.find(h=>h.id===id);if(!h)return false;
     if(h.connected)return false;
-    const p=this.state.players.find(p=>p.id===h.fighterId&&p.controller===null)??this.state.players.find(p=>p.team===h.team&&!p.keeper&&p.controller===null);
+    const p=this.state.players.find(p=>p.id===h.fighterId&&!p.keeper&&p.controller===null)??this.state.players.find(p=>p.team===h.team&&!p.keeper&&p.controller===null);
     if(!p)return false;
     h.connected=true;transfer(this.state,h,p);
     if(!this.state.host)this.state.host=id;
     this.captains();return true;
   }
-  removeHuman(id:string) {this.disconnect(id);this.state.humans=this.state.humans.filter(h=>h.id!==id);this.acks.delete(id);this.captains();}
+  removeHuman(id:string) {this.disconnect(id);this.state.humans=this.state.humans.filter(h=>h.id!==id);this.acks.delete(id);this.gates.delete(id);this.captains();}
   private captains() {
     for(const h of this.state.humans)h.captain=false;
     for(const team of [0,1]){const h=this.state.humans.find(h=>h.team===team&&h.connected);if(h)h.captain=true;}
@@ -64,6 +70,15 @@ export class Game {
     const target=this.state.players.find(p=>p.team===team&&!p.keeper&&p.controller===null)!;
     transfer(this.state,h,target);this.captains();
   }
+  configure(id:string,settings:unknown) {
+    const s=this.state;
+    if(id!==s.host||!s.humans.some(h=>h.id===id&&h.connected))throw Error('Solo el anfitrión puede configurar el partido.');
+    if(s.phase!=='lobby')throw Error('Los ajustes se cambian en el lobby.');
+    if(!validSettings(settings))throw Error('Ajustes inválidos.');
+    if(s.settings.pace===settings.pace&&s.settings.difficulty===settings.difficulty)return;
+    s.settings={pace:settings.pace,difficulty:settings.difficulty};
+    for(const h of s.humans)h.ready=false;
+  }
   ready(id:string,value:boolean) {const h=this.state.humans.find(h=>h.id===id);if(h&&this.state.phase==='lobby')h.ready=value;}
   start(id:string) {
     const s=this.state;
@@ -72,13 +87,14 @@ export class Game {
     if(!s.humans.some(h=>h.connected)||s.humans.some(h=>h.connected&&!h.ready))throw Error('Falta que todos estén listos.');
     s.phase='kickoff';s.phaseTime=3;resetPositions(s,0);event(s,'start','¡A la cancha!');
     this.inputs.clear();this.previous.clear();
+    for(const p of s.players)if(p.controller)this.gates.set(p.controller,{epoch:p.epoch,blocked:new Set()});
   }
   rematch(id:string) {
     if(this.state.phase!=='finished'||id!==this.state.host)throw Error('La revancha la abre el anfitrión al terminar.');
     const previous=this.state;
     this.state=createState(previous.seed,previous.regulation,previous.overtime);
     for(const p of this.state.players)p.species=previous.players.find(q=>q.id===p.id)!.species;
-    this.state.nextId=previous.nextId;
+    this.state.nextId=previous.nextId;this.state.settings={...previous.settings};
     for(const h of previous.humans) {this.addHuman(h.id,h.name,h.team);if(!h.connected)this.disconnect(h.id);}
     this.state.host=id;this.inputs.clear();this.previous.clear();this.acks.clear();
   }
@@ -87,10 +103,22 @@ export class Game {
     if(!frame||!p||frame.epoch!==p.epoch||frame.seq<=(this.acks.get(id)??-1))return false;
     const prior=this.inputs.get(id);
     if(prior&&frame.seq<=prior.frame.seq)return false;
+    let gate=this.gates.get(id);
+    const actions=['pass','lob','shoot','dodge','switch','simple','normal','special','item'] as const;
+    if(!gate||gate.epoch!==p.epoch) {
+      gate={epoch:p.epoch,blocked:new Set(actions)};this.gates.set(id,gate);
+      this.previous.delete(id);
+    }
+    for(const action of actions) {
+      if(!frame[action])gate.blocked.delete(action);
+      if(gate.blocked.has(action))frame[action]=false;
+    }
     this.inputs.set(id,{frame,at:this.state.time});return true;
   }
   private switch(id:string) {
     const h=this.state.humans.find(h=>h.id===id&&h.connected);if(!h)return;
+    if(this.state.keeperPossession?.controller===id)return;
+    if(this.state.ball.passSession===id)this.state.ball.passSession=null;
     const candidates=this.state.players.filter(p=>p.team===h.team&&!p.keeper&&p.controller===null)
       .sort((a,b)=>distance(a,this.state.ball)-distance(b,this.state.ball));
     if(candidates[0])transfer(this.state,h,candidates[0]);
@@ -98,9 +126,12 @@ export class Game {
   private act(p:Fighter,input:InputFrame,prev:InputFrame,dt:number) {
     const s=this.state;
     const edge=(key:keyof InputFrame)=>!!input[key]&&!prev[key];
+    if(p.keeper){keeperInput(s,p,input,prev);return;}
     if(p.stun>0||p.cast>0){p.charge=0;return;}
     if(edge('switch')&&p.controller) {this.switch(p.controller);return;}
-    moveFighter(p,input,dt);
+    const before={x:p.x,z:p.z};
+    moveFighter(p,input,dt,s.settings);
+    constrainKeeperArea(s,p,before);
     const running=input.sprint&&p.noSprint<=0&&Math.hypot(input.moveX,input.moveZ)>.1;
     p.stamina=clamp(p.stamina+(running?-23:16)*dt,0,100);
     if(edge('dodge')&&p.stamina>=25&&p.actionCd<=0) {
@@ -136,31 +167,42 @@ export class Game {
       }
       return;
     }
+    updateKeeperPossession(s);
+    updateTactics(s);
     for(const p of s.players) {
       for(const key of ['simpleCd','stun','immunity','slowTime','shield','boost','buff','cloak','noSprint','actionCd','dodgeTime'] as const)p[key]=Math.max(0,p[key]-dt);
       if(p.cast>0){p.cast=Math.max(0,p.cast-dt);if(p.cast===0)finishCast(s,p);}
-      if(p.keeper)continue;
+      if(p.keeper&&!p.controller)continue;
       let input:InputFrame;
       if(p.controller) {
         const saved=this.inputs.get(p.controller);
         input=saved&&saved.frame.epoch===p.epoch&&s.time-saved.at<.25?saved.frame:emptyInput(p.epoch);
         if(saved&&saved.frame.epoch===p.epoch)this.acks.set(p.controller,saved.frame.seq);
       } else input=botInput(s,p,dt);
-      const key=p.controller??'bot:'+p.id,prev=this.previous.get(key)??emptyInput(p.epoch);
+      const retreat=s.keeperPossession?.retreat[p.id];
+      if(retreat){
+        const v=unit(retreat.x-p.x,retreat.z-p.z);input={...emptyInput(p.epoch),moveX:v.x,moveZ:v.z};
+        p.stun=0;p.cast=0;p.vx=0;p.vz=0;
+      }
+      const key=p.controller??'bot:'+p.id,savedPrev=this.previous.get(key);
+      const prev=savedPrev?.epoch===p.epoch?savedPrev:emptyInput(p.epoch);
       this.act(p,input,prev,dt);this.previous.set(key,{...input});
     }
     for(let i=0;i<2;i++) {
-      updateKeepers(s,dt/2);resolvePlayers(s,dt/2);updateEffects(s,dt/2);updateBall(s,dt/2);
+      const positions=s.players.map(p=>({x:p.x,z:p.z}));
+      updateKeepers(s,dt/2);resolvePlayers(s,dt/2);updateEffects(s,dt/2);
+      s.players.forEach((p,index)=>constrainKeeperArea(s,p,positions[index]));
+      updateBall(s,dt/2);
       if(!['playing','overtime'].includes(s.phase))break;
     }
     if(s.phase==='playing'||s.phase==='overtime') {
       updatePickups(s,dt);s.remaining=Math.max(0,s.remaining-dt);
       if(s.remaining<=0)this.endPeriod();
     }
-    for(const p of s.players){p.x=clamp(p.x,-FIELD.halfWidth+.65,FIELD.halfWidth-.65);p.z=clamp(p.z,-FIELD.halfDepth+.65,FIELD.halfDepth-.65);}
+    for(const p of s.players){p.x=clamp(p.x,-FIELD.halfWidth+FIELD.playerRadius,FIELD.halfWidth-FIELD.playerRadius);p.z=clamp(p.z,-FIELD.halfDepth+FIELD.playerRadius,FIELD.halfDepth-FIELD.playerRadius);}
   }
   private endPeriod() {
-    const s=this.state;
+    const s=this.state;endKeeperPossession(s);
     if(s.half===1){s.phase='halftime';s.phaseTime=10;event(s,'half','Entretiempo');}
     else if(s.half===2&&s.score[0]===s.score[1]) {
       s.half=3;s.remaining=s.overtime;s.phase='kickoff';s.phaseTime=3;resetPositions(s,0);event(s,'overtime','Gol de oro');
