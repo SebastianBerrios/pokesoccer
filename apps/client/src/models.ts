@@ -1,128 +1,233 @@
 import { GLRenderer, multiply, transform, type Shape } from './gl.ts';
 import { POKEMON } from '../../../packages/game/src/catalog.ts';
-import type { Species } from '../../../packages/game/src/types.ts';
+import type { FighterAction, Species } from '../../../packages/game/src/types.ts';
 
-export function drawPokemon(gl:GLRenderer,id:Species,x:number,z:number,yaw:number,time:number,moving=false,scale=1,stun=false,casting=false) {
-  const p=POKEMON[id],c=p?.color??'#c09bd8',accent=p?.accent??'#eadff1';
-  const bob=moving?Math.abs(Math.sin(time*12))*.1:Math.sin(time*2)*.025;
-  const base=transform(x,stun?.15:bob,z,scale,scale,scale,yaw,stun?.6:0);
-  const part=(kind:Shape,lx:number,ly:number,lz:number,sx:number,sy:number,sz:number,color:string,rz=0,rx=0)=>{
-    gl.add(kind,multiply(base,transform(lx,ly,lz,sx,sy,sz,0,rz,rx)),color);
+export const MODEL_BOUNDS: Record<Species,{height:number;width:number}> = {
+  pikachu:{height:2.85,width:2.1},charizard:{height:3.05,width:3.7},blastoise:{height:2.5,width:2.2},
+  venusaur:{height:2.75,width:3},gengar:{height:2.4,width:2.25},machamp:{height:2.8,width:2.9},
+  alakazam:{height:2.95,width:2.4},snorlax:{height:2.65,width:2.35},lapras:{height:3.05,width:2.8},
+  dragonite:{height:3.15,width:2.9},lucario:{height:3.05,width:2.2},greninja:{height:2.55,width:2.8},
+  ditto:{height:1.6,width:2.25},
+};
+export interface ModelAction { kind: FighterAction; progress: number }
+export function drawPokemon(gl:GLRenderer,id:Species,x:number,z:number,yaw:number,time:number,moving=false,scale=1,stun=false,casting=false,action?:ModelAction) {
+  const c=POKEMON[id]?.color??'#bd94d7',accent=POKEMON[id]?.accent??'#eadff1';
+  const cycle=time*9,stride=moving?Math.sin(cycle)*.48:0;
+  const pulse=action?Math.sin(Math.min(1,action.progress)*Math.PI):0;
+  const kick=action?.kind==='pass'||action?.kind==='shot'?pulse:0;
+  const tackle=action?.kind==='tackle'||action?.kind==='dodge'?pulse:0;
+  const cast=casting||action?.kind==='cast';
+  const bounce=moving?Math.abs(Math.sin(cycle))*.07:Math.sin(time*2)*.018;
+  const base=transform(x,bounce+(stun?.1:0),z,scale,scale,scale,yaw,stun?.35:0,tackle*.3-kick*.12);
+  const part=(kind:Shape,lx:number,ly:number,lz:number,sx:number,sy:number,sz:number,color=c,rz=0,rx=0,ry=0)=>{
+    gl.add(kind,multiply(base,transform(lx,ly,lz,sx,sy,sz,ry,rz,rx)),color);
   };
-  const sphere=(lx:number,ly:number,lz:number,sx:number,sy:number,sz:number,color=c)=>part('sphere',lx,ly,lz,sx,sy,sz,color);
-  const cone=(lx:number,ly:number,lz:number,sx:number,sy:number,sz:number,color=c,rz=0)=>part('cone',lx,ly,lz,sx,sy,sz,color,rz);
-  const eye=(lx:number,ly:number,lz:number,size=.09)=>{sphere(lx,ly,lz,size,size*1.2,.055,'#172626');sphere(lx-.018,ly+.025,lz+.045,size*.3,size*.3,.025,'#ffffff');};
-  const stride=moving?Math.sin(time*12)*.23:0;
+  const oval=(lx:number,ly:number,lz:number,sx:number,sy:number,sz:number,color=c,rx=0)=>part('sphere',lx,ly,lz,sx,sy,sz,color,0,rx);
+  const cone=(lx:number,ly:number,lz:number,sx:number,sy:number,sz:number,color=c,rz=0,rx=0)=>part('cone',lx,ly,lz,sx,sy,sz,color,rz,rx);
+  const eye=(lx:number,ly:number,lz:number,size=.1,color='#17282a')=>{
+    oval(lx,ly,lz,size,size*1.2,.045,color);
+    oval(lx-.025,ly+.032,lz+.035,size*.3,size*.3,.018,'#fffdf0');
+  };
+  const mouth=(ly:number,lz:number,width=.22,color='#473e43')=>part('box',0,ly,lz,width,.035,.035,color);
+  const limb=(lx:number,ly:number,lz:number,length:number,radius:number,color:string,angle:number)=>{
+    oval(lx,ly-Math.cos(angle)*length*.5,lz+Math.sin(angle)*length*.5,radius,length*.58,radius,color,angle);
+  };
+  const foot=(side:number,lx:number,ly:number,lz:number,sx:number,sy:number,sz:number,color=c)=>{
+    oval(side*lx,ly+Math.max(0,side*stride)*.12,lz+side*stride*.28+(side===1?kick*.5:0),sx,sy,sz,color);
+  };
+  const claws=(lx:number,ly:number,lz:number)=>{for(const dx of [-.12,0,.12])cone(lx+dx,ly,lz,.055,.19,.065,'#f7ead0',0,Math.PI/2);};
   if(id==='ditto') {
-    sphere(0,.65,0,.86,.7,.64);sphere(-.62,.28,.05,.43,.25,.46);sphere(.62,.28,.05,.43,.25,.46);
-    eye(-.22,.88,.58,.065);eye(.22,.88,.58,.065);part('box',0,.63,.64,.22,.04,.04,'#563d67');
-    sphere(-.94,.6,.05,.24,.28,.22,'#fbf3da');sphere(.94,.6,.05,.24,.28,.22,'#fbf3da');return;
+    oval(0,.65,0,.83,.68,.68);oval(0,.4,.08,.94,.32,.7);
+    for(const side of [-1,1]) {
+      oval(side*.65,.28,.05,.42,.22,.43);
+      oval(side*.9,.72+Math.sin(time*3)*.06,.05,.22,.3,.22,'#fff2d3');
+      eye(side*.24,.92,.61,.055);
+    }
+    mouth(.66,.7,.25,'#654973');return;
   }
-  const heavy=['snorlax','blastoise','venusaur'].includes(id);
-  if(id==='lapras') {
-    sphere(0,.56,-.18,.9,.48,1.05);sphere(0,.87,-.42,.85,.27,.86,accent);
-    for(const side of [-1,1]){sphere(side*.9,.22,.22,.6,.1,.32);sphere(side*.6,.22,-.86,.42,.1,.3);}
-    sphere(0,1.13,.6,.34,.86,.35);sphere(0,1.88,.76,.48,.38,.45);
-    cone(-.32,2.16,.62,.18,.5,.18,c,-.5);cone(.32,2.16,.62,.18,.5,.18,c,.5);
-    eye(-.23,1.94,1.13);eye(.23,1.94,1.13);
-    for(const xx of [-.4,0,.4])cone(xx,1.18,-.5,.15,.5,.15,'#dce4de');
-    return;
+  if(id==='pikachu') {
+    oval(0,.84,-.06,.51,.62,.4);oval(0,1.7,.08,.64,.52,.48);
+    for(const side of [-1,1]) {
+      limb(side*.46,1.15,.06,.55,.16,c,cast?-1.6:-.25+side*stride*.6);
+      foot(side,.29,.2,.15,.22,.16,.34);
+      part('box',side*.39,2.32,.04,.2,.82,.18,c,-side*.25);
+      part('box',side*.49,2.67,.04,.21,.27,.19,'#302e2a',-side*.25);
+      oval(side*.47,1.57,.47,.145,.13,.05,'#ea5546');
+      eye(side*.25,1.83,.51,.105);
+    }
+    cone(0,1.68,.59,.07,.09,.06,'#342d2d',0,Math.PI);mouth(1.5,.53,.15);
+    part('box',0,1.1,-.425,.56,.13,.035,'#925330');part('box',0,.83,-.45,.52,.12,.035,'#925330');
+    const sway=Math.sin(time*3)*.08;
+    part('box',.55,.65,-.6,.18,.6,.16,'#925330',-.6+sway);
+    part('box',.76,1,-.65,.55,.22,.16,c,-.4+sway);
+    part('box',1.02,1.38,-.65,.29,.72,.15,c,-.4+sway);
+    part('box',1.19,1.69,-.65,.54,.3,.15,c,.12+sway);return;
   }
   if(id==='venusaur') {
-    sphere(0,.6,0,1,.58,.88);sphere(0,.84,.75,.67,.5,.55);
-    for(const sx of [-1,1])for(const zz of [-.6,.6])sphere(sx*.65,.25,zz,.28,.32,.32);
-    cone(-.48,1.22,.66,.2,.4,.19);cone(.48,1.22,.66,.2,.4,.19);
-    eye(-.31,.94,1.22);eye(.31,.94,1.22);
-    for(let i=0;i<5;i++){const a=i/5*Math.PI*2;sphere(Math.cos(a)*.62,1.17,Math.sin(a)*.62-.2,.65,.12,.35,'#38744d');sphere(Math.cos(a)*.43,1.73,Math.sin(a)*.43-.2,.5,.17,.45,accent);}
-    part('cylinder',0,1.45,-.2,.15,.7,.15,'#6d7049');sphere(0,1.87,-.2,.25,.2,.25,'#e8ca62');
-    return;
-  }
-  const bodyY=id==='snorlax'?1: .85;
-  sphere(0,bodyY,0,heavy?.86:.51,heavy?.9:.64,heavy?.68:.43);
-  for(const side of [-1,1]) {
-    sphere(side*(heavy?.48:.31),.25,side*stride,heavy?.34:.23,.24,.38);
-    const armY=casting?1.38:.93;
-    sphere(side*(heavy?.83:.6),armY,.07,heavy?.25:.19,.38,.22,c);
-  }
-  const headY=heavy?1.68:1.62;
-  sphere(0,headY,.13,heavy?.64:.56,.51,.47);
-  if(['pikachu','snorlax','charizard','dragonite','blastoise','lucario'].includes(id))
-    sphere(0,bodyY,.36,heavy?.62:.35,heavy?.62:.46,.18,id==='lucario'?accent:'#efe0b5');
-  eye(-.21,headY+.08,.54);eye(.21,headY+.08,.54);
-  if(id==='pikachu') {
-    for(const side of [-1,1]){
-      part('box',side*.38,2.18,.05,.2,.77,.18,c,-side*.22);
-      part('box',side*.46,2.53,.05,.2,.25,.19,'#443f35',-side*.22);
-      sphere(side*.39,1.52,.48,.15,.14,.065,'#e96846');
-    }
-    part('box',.62,.92,-.59,.22,.65,.18,accent,-.75);
-    part('box',.86,1.23,-.66,.46,.23,.15,c,-.6);
-    part('box',1.08,1.57,-.71,.39,.72,.18,c,-.4);
-    part('box',0,1.38,.577,.13,.028,.035,'#564731');
-  }
-  if(id==='charizard'||id==='dragonite') {
+    oval(0,.72,-.05,.96,.6,.93);oval(0,.84,.78,.78,.48,.62);
     for(const side of [-1,1]) {
-      part('cone',side*.96,1.2,-.28,.68,id==='charizard'?1.4:.85,.14,accent,side*.75);
-      part('cone',side*1.1,1.27,-.3,.2,1.3,.12,c,side*.9);
-      cone(side*.35,2.14,.03,.12,.38,.12,c,-side*.4);
+      for(const zz of [-.62,.6]){oval(side*.67,.32,zz+stride*side*.12,.28,.32,.3);claws(side*.67,.2,zz+.27);}
+      cone(side*.55,1.22,.69,.21,.47,.18,c,-side*.2);
+      oval(side*.34,1,1.33,.2,.13,.045,'#f9e7cc');eye(side*.34,1,1.37,.09,'#b85168');
+      oval(side*.63,.75,1.12,.09,.065,.035,'#4a8277');
+      cone(side*.38,.62,1.32,.065,.16,.055,'#fff2d3',0,Math.PI);
     }
-    sphere(0,1.55,.56,.32,.24,.39);
-    sphere(0,.58,-.6,.27,.23,.7);sphere(0,.72,-1.14,.16,.25,.38);
-    if(id==='charizard'){cone(0,1.15,-1.47,.27,.74,.22,'#ff8543');cone(0,1.17,-1.47,.13,.45,.14,'#ffe179');}
-    else for(const side of [-1,1])part('cylinder',side*.2,2.27,.03,.035,.55,.035,'#f4dfb0',side*.3);
+    mouth(.66,1.4,.64);part('cylinder',0,1.45,-.3,.25,1.25,.24,'#846543');
+    for(let i=0;i<6;i++){
+      const a=i*Math.PI/3;part('cone',Math.cos(a)*.68,1.32,Math.sin(a)*.63-.3,.4,1.2,.15,'#327849',Math.PI/2,0,a);
+      oval(Math.cos(a)*.54,2.13,Math.sin(a)*.54-.3,.6,.18,.46,'#e87991');
+      oval(Math.cos(a)*.7,2.24,Math.sin(a)*.66-.3,.12,.026,.1,'#f6c0ba');
+    }
+    oval(0,2.4,-.3,.29,.28,.28,'#eec65e');return;
   }
-  if(id==='blastoise') {
-    sphere(0,1,-.44,.92,.91,.45,accent);sphere(0,1,-.77,.76,.77,.22,'#796245');
-    for(const side of [-1,1]){
-      part('cylinder',side*.51,1.69,-.28,.18,.85,.18,'#c3ccd0',0,Math.PI/2);
-      part('cylinder',side*.51,1.69,.18,.13,.025,.13,'#344a50',0,Math.PI/2);
-      cone(side*.37,2.1,.08,.18,.3,.14);
+  if(id==='lapras') {
+    oval(0,.59,-.25,.82,.46,1.05);oval(0,.89,-.46,.78,.28,.84,'#b5b4ce');
+    oval(0,1.59,.59,.34,1.02,.35);oval(0,2.4,.76,.47,.4,.45);
+    oval(0,2.25,1.09,.34,.19,.3,'#dce0bf');cone(0,2.82,1,.09,.42,.09,'#ebdfb4');
+    for(const side of [-1,1]) {
+      oval(side*.91,.24,.2,.58,.1,.35,c,side*stride*.2);
+      oval(side*.57,.23,-1.03,.4,.08,.32);
+      oval(side*.43,2.57,.55,.24,.13,.2,c);
+      part('ring',side*.43,2.58,.56,.12,1,.12,'#467aab',0,Math.PI/2);
+      eye(side*.23,2.44,1.12,.09);
     }
+    for(const xx of [-.45,0,.45])for(const zz of [-.85,-.28])cone(xx,1.25,zz,.14,.5,.13,'#d7d7df');
+    mouth(2.19,1.34,.19);return;
   }
   if(id==='gengar') {
-    for(const side of [-1,1]){cone(side*.4,2.1,0,.27,.5,.22,c,side*.25);sphere(side*.22,1.68,.56,.16,.1,.055,'#f57f98');}
-    for(const xx of [-.5,0,.5])cone(xx,1.55,-.36,.25,.65,.25);
-    part('box',0,1.4,.58,.59,.13,.055,'#f6efde');
-    for(const xx of [-.2,0,.2])part('box',xx,1.4,.61,.02,.13,.025,'#6f537e');
-  }
-  if(id==='machamp') {
-    for(const side of [-1,1]){sphere(side*.75,1.44,-.14,.28,.48,.26);sphere(side*.9,1.06,.15,.28,.22,.3);}
-    part('box',0,.45,.05,1,.16,.7,'#3d4a4c');part('box',0,.45,.45,.3,.2,.08,accent);
-    for(const xx of [-.25,0,.25])part('box',xx,2.07,.06,.11,.35,.42,accent);
-    sphere(0,1.44,.55,.3,.1,.16,'#d9c8aa');
-  }
-  if(id==='alakazam') {
-    part('cone',0,1.06,.32,.48,.7,.2,accent,Math.PI);
+    oval(0,1.03,0,.8,.92,.65);
     for(const side of [-1,1]) {
-      cone(side*.38,2.16,.04,.19,.61,.16,c,side*.3);
-      part('cone',side*.35,1.4,.62,.1,.82,.11,'#f1d796',side*1.12);
-      part('cylinder',side*.78,.85,.28,.035,.52,.035,'#d7e2df',side*.2);
-      sphere(side*.84,1.15,.28,.13,.19,.065,'#d7e2df');
+      cone(side*.54,1.98,-.03,.3,.73,.24,c,-side*.38);
+      oval(side*.85,1.02,.03,.33,.22,.29,c,cast?-1:stride*.3);
+      foot(side,.43,.18,.15,.3,.16,.36);
+      oval(side*.31,1.49,.59,.24,.13,.055,'#ed5b83');
+      oval(side*.3,1.49,.65,.055,.11,.02,'#3a294d');
+      for(const zz of [-.4,-.7])cone(side*.43,1.47,zz,.22,.55,.2,c,side*.6);
     }
+    cone(0,1.91,-.4,.24,.62,.22);oval(0,1.04,.617,.51,.25,.055,'#fcf2d7');
+    for(const xx of [-.3,-.15,0,.15,.3])part('box',xx,1.05,.679,.025,.3,.015,'#715585');
+    return;
   }
   if(id==='snorlax') {
-    for(const side of [-1,1]){cone(side*.46,2.12,.06,.2,.44,.2);part('box',side*.23,1.79,.572,.18,.028,.035,'#263f42');}
-    part('box',0,1.56,.618,.28,.026,.03,'#33474a');
+    oval(0,1.13,0,.91,1.03,.73);oval(0,1.07,.48,.74,.79,.33,'#ead9b4');
+    oval(0,2.04,.04,.64,.49,.52);oval(0,2.04,.39,.5,.34,.22,'#efdfbe');
+    for(const side of [-1,1]) {
+      cone(side*.47,2.4,.03,.2,.47,.18,c,-side*.23);
+      limb(side*.89,1.57,.01,.74,.28,c,cast?-1.2:-.15);
+      foot(side,.55,.22,.42,.37,.2,.42,'#ead9b4');claws(side*.55,.23,.79);
+      part('box',side*.22,2.12,.6,.18,.027,.03,'#273c3c',-side*.12);
+      cone(side*.17,1.83,.62,.055,.13,.04,'#fff6df',0,Math.PI);
+    }
+    mouth(1.87,.635,.28);return;
+  }
+  if(id==='blastoise') {
+    oval(0,1.1,-.24,.85,.91,.62,'#e0ccb1');oval(0,1.1,-.51,.76,.8,.49,'#8a6845');
+    for(const yy of [.69,1.04,1.38])part('box',0,yy,-.98,.9,.055,.045,'#62492f');
+    oval(0,1.02,.25,.65,.7,.4,'#dec7a0');
+    for(const yy of [.69,.97,1.25])part('box',0,yy,.643,1.05,.035,.025,'#a58a63');
+    oval(0,1.91,.27,.56,.39,.47);oval(0,1.76,.57,.43,.19,.34);
+    for(const side of [-1,1]) {
+      limb(side*.72,1.44,.08,.68,.25,c,cast?-1.2:-.3+stride*side*.25);
+      foot(side,.48,.2,.19,.32,.19,.4);claws(side*.48,.22,.53);
+      cone(side*.4,2.19,.13,.18,.32,.15);
+      eye(side*.26,1.99,.65,.09);
+      part('cylinder',side*.58,1.88,-.27,.18,1.19,.18,'#aabcc4',0,Math.PI/2-.13);
+      part('cylinder',side*.58,1.97,.32,.13,.035,.13,'#273d49',0,Math.PI/2-.13);
+      part('cylinder',side*.58,1.96,.24,.21,.12,.21,'#dee5df',0,Math.PI/2-.13);
+    }
+    mouth(1.66,.873,.3);return;
+  }
+  if(id==='charizard'||id==='dragonite') {
+    const dragon=id==='dragonite',bodyWidth=dragon?.67:.57;
+    oval(0,1.18,0,bodyWidth,.91,.51);oval(0,1.12,.39,bodyWidth*.78,.69,.22,'#f2d5a1');
+    oval(0,2.05,.04,dragon?.49:.37,dragon?.55:.54,.38);
+    oval(0,dragon?2.25:2.1,.36,dragon?.39:.37,.25,.4);
+    for(const side of [-1,1]) {
+      limb(side*(bodyWidth+.12),1.59,.05,.61,.18,c,cast?-1.45:-.3+side*stride*.4);
+      foot(side,.43,.21,.2,.28,.2,.4);claws(side*.43,.21,.56);
+      const flap=Math.sin(time*(moving?7:2.5))*.12;
+      const wingSpan=dragon?1:1.36;
+      part('cone',side*wingSpan,1.7,-.31,dragon?.48:.72,dragon?1.05:1.65,.1,accent,side*(.8+flap));
+      part('cone',side*(wingSpan+.17),1.8,-.34,.13,dragon?1.18:1.76,.12,c,side*(.85+flap));
+      eye(side*.22,2.37,.63,.083);
+      if(dragon){
+        part('cylinder',side*.22,2.87,.03,.035,.48,.035,'#f7e5b9',side*.35);
+        oval(side*.3,3.08,.03,.06,.06,.06,'#f7e5b9');
+      }else cone(side*.28,2.7,-.08,.14,.64,.13,c,-side*.25);
+    }
+    oval(0,.52,-.64,.28,.24,.63);oval(.16,.69,-1.12,.18,.23,.44,c,-.5);
+    if(!dragon) {
+      cone(.25,1.02+Math.sin(time*14)*.04,-1.48,.25,.68,.2,'#f36b35');
+      cone(.25,1.04,-1.48,.12,.43,.12,'#ffe471');
+    }else oval(.16,.71,-1.42,.11,.17,.2);
+    mouth(dragon?2.1:1.96,.73,.23);return;
+  }
+  if(id==='machamp') {
+    oval(0,1.23,0,.61,.7,.4);oval(0,1.55,.15,.73,.37,.35);
+    oval(0,2.15,.05,.44,.43,.37);
+    part('box',0,.67,.01,1.06,.28,.69,'#2e3742');
+    part('box',0,.78,.38,.33,.25,.07,'#e2b65c');part('box',0,.78,.43,.14,.11,.025,'#8b7046');
+    for(const side of [-1,1]) {
+      limb(side*.35,.7,.02,.56,.24,c,side*stride);foot(side,.37,.17,.18,.29,.15,.35);
+      for(const upper of [false,true]) {
+        const yy=upper?1.83:1.25,lx=upper?.76:.68;
+        oval(side*lx,yy,-.13,.27,.26,.25);
+        limb(side*(lx+.23),yy,-.08,.55,.24,c,cast?-1.7:upper?-.8:-.2);
+        oval(side*(lx+.28),yy-(cast?-.1:upper?.28:.48),cast?.5:.24,.26,.23,.27);
+      }
+      eye(side*.18,2.22,.4,.085);
+    }
+    for(const xx of [-.2,0,.2])part('box',xx,2.55,-.02,.12,.41,.4,'#d7c39d');
+    oval(0,1.99,.42,.31,.12,.18,'#d6c09d');mouth(2.01,.599,.34);return;
+  }
+  if(id==='alakazam') {
+    oval(0,1.21,0,.4,.6,.3);part('cone',0,1.31,.2,.53,.85,.23,accent,Math.PI);
+    oval(0,2.03,.02,.47,.42,.34);cone(0,1.82,.33,.18,.55,.24,c,Math.PI);
+    for(const side of [-1,1]) {
+      cone(side*.38,2.48,0,.2,.8,.17,c,-side*.25);
+      limb(side*.24,.8,.02,.58,.14,c,side*stride);foot(side,.27,.17,.14,.24,.13,.34);
+      limb(side*.5,1.6,.02,.62,.14,c,cast?-1.5:-.9+side*stride*.25);
+      oval(side*.76,1.19,.28,.19,.16,.2);
+      part('cylinder',side*.84,1.36,.38,.032,.68,.032,'#d5e2e2',-side*.23);
+      oval(side*.92,1.72,.38,.13,.19,.055,'#e5ebde');
+      part('box',side*.21,2.09,.35,.21,.045,.025,'#3c3530',side*.17);
+      cone(side*.38,1.85,.45,.1,.89,.09,'#f3d78e',side*1.23);
+    }
+    return;
   }
   if(id==='lucario') {
-    for(const side of [-1,1]){
-      cone(side*.35,2.25,.05,.19,.75,.16,'#334a57',side*.1);
-      sphere(side*.25,1.68,.5,.23,.16,.08,'#314d5d');
-      eye(side*.23,1.72,.575,.075);
-      part('cone',side*.72,.91,.31,.12,.32,.12,'#e9e6c7',side*1.4);
-      part('box',side*.25,.28,-.05,.26,.65,.28,'#324b5e');
+    oval(0,1.34,0,.35,.58,.3,'#e5d7b1');oval(0,.82,0,.44,.35,.33,c);
+    oval(0,2.08,0,.45,.4,.34);oval(0,1.94,.34,.26,.21,.33,c);
+    cone(0,1.93,.63,.11,.22,.1,'#2e3c49',0,Math.PI/2);
+    for(const side of [-1,1]) {
+      limb(side*.25,.71,.02,.53,.17,'#2f4053',side*stride);foot(side,.28,.16,.14,.24,.14,.36,'#2f4053');
+      limb(side*.46,1.58,.02,.65,.17,c,cast?-1.5:-.25+side*stride*.4);
+      oval(side*.58,1.02,.15,.21,.19,.25,'#2f4053');
+      cone(side*.62,1.06,.37,.1,.32,.1,'#f3edcf',0,Math.PI/2);
+      cone(side*.3,2.67,-.02,.15,.75,.14,'#2f4053',-side*.1);
+      cone(side*.3,2.59,.06,.065,.45,.055,c,-side*.1);
+      oval(side*.23,2.12,.29,.24,.14,.07,'#273c51');
+      eye(side*.23,2.14,.355,.07,'#c64d51');
+      limb(side*.37,2.07,-.23,.62,.12,'#2f4053',-.3);
     }
-    part('cone',0,1.08,.6,.15,.42,.15,'#f0e5c9',0,Math.PI/2);
-    sphere(0,1.44,.64,.22,.19,.23,c);
+    cone(0,1.43,.4,.12,.43,.12,'#fff0cf',0,Math.PI/2);
+    oval(.13,.82,-.49,.14,.17,.51,c,.35);return;
   }
-  if(id==='greninja') {
-    for(const side of [-1,1]){
-      cone(side*.5,1.99,.08,.27,.8,.2,c,side*.8);
-      sphere(side*.24,1.68,.53,.16,.14,.045,'#edf0d5');eye(side*.24,1.68,.58,.07);
-      sphere(side*.65,.45,.13,.35,.15,.34);
-    }
-    part('cylinder',0,1.19,.06,.47,.18,.45,accent);
-    part('box',.58,1.3,-.24,.95,.18,.21,accent,-.25);
-    sphere(0,1.48,.48,.14,.12,.2,'#e7d9a2');
+  // Greninja has a low, wide frog stance, long articulated legs and a tongue scarf.
+  oval(0,1.09,-.05,.4,.52,.31);oval(0,1.83,.06,.58,.39,.35);
+  cone(0,1.58,.37,.3,.54,.22,'#e0d6a6',Math.PI);
+  for(const side of [-1,1]) {
+    oval(side*.56,.63,-.06,.36,.22,.4);
+    limb(side*.75,.58,.04,.45,.14,c,-.55+side*stride);
+    foot(side,.86,.14,.26,.36,.09,.39);
+    limb(side*.45,1.33,.06,.65,.12,c,cast?-1.65:-.7+side*stride*.4);
+    oval(side*.64,.96,.51,.22,.1,.23);
+    cone(side*.5,2.15,-.02,.27,.75,.21,c,-side*.8);
+    part('box',side*.26,1.96,.37,.28,.16,.04,'#f8efcf',side*.2);
+    eye(side*.26,1.96,.41,.075,'#b94359');
+    oval(side*.55,1.53,.1,.13,.13,.12,'#b7d8e2');
   }
+  part('cylinder',0,1.48,.01,.49,.18,.39,accent);
+  part('box',.68,1.57,-.29,1.04,.19,.19,accent,-.2-Math.sin(time*4)*.08);
+  cone(1.17,1.71,-.29,.16,.39,.09,accent,-1.3);
 }

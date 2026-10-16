@@ -1,3 +1,4 @@
+import type { CameraView } from './match-camera.ts';
 import { FIELD } from '../../../packages/game/src/geometry.ts';
 type V3=[number,number,number];
 export type Shape='box'|'sphere'|'cone'|'cylinder'|'ring';
@@ -9,20 +10,22 @@ export function multiply(a:M4,b:M4):M4 {
   return out;
 }
 export function transform(x:number,y:number,z:number,sx=1,sy=1,sz=1,ry=0,rz=0,rx=0):M4 {
-  const cy=Math.cos(ry),syy=Math.sin(ry),cz=Math.cos(rz),szz=Math.sin(rz),cx=Math.cos(rx),sxx=Math.sin(rx);
-  const t=identity();t[12]=x;t[13]=y;t[14]=z;
-  const ymat=new Float32Array([cy,0,-syy,0,0,1,0,0,syy,0,cy,0,0,0,0,1]);
-  const zmat=new Float32Array([cz,szz,0,0,-szz,cz,0,0,0,0,1,0,0,0,0,1]);
-  const xmat=new Float32Array([1,0,0,0,0,cx,sxx,0,0,-sxx,cx,0,0,0,0,1]);
-  const scale=new Float32Array([sx,0,0,0,0,sy,0,0,0,0,sz,0,0,0,0,1]);
-  return multiply(multiply(multiply(multiply(t,ymat),zmat),xmat),scale);
+  const cy=Math.cos(ry),siny=Math.sin(ry),cz=Math.cos(rz),sinz=Math.sin(rz),cx=Math.cos(rx),sinx=Math.sin(rx);
+  return new Float32Array([
+    cy*cz*sx,sinz*sx,-siny*cz*sx,0,
+    (-cy*sinz*cx+siny*sinx)*sy,cz*cx*sy,(siny*sinz*cx+cy*sinx)*sy,0,
+    (cy*sinz*sinx+siny*cx)*sz,-cz*sinx*sz,(-siny*sinz*sinx+cy*cx)*sz,0,
+    x,y,z,1,
+  ]);
 }
 function normalize(v:V3):V3 {const n=Math.hypot(...v)||1;return [v[0]/n,v[1]/n,v[2]/n];}
 function cross(a:V3,b:V3):V3 {return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];}
 function dot(a:V3,b:V3){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
-export function camera(width:number,height:number,hero:boolean|'portrait'=false):M4 {
+export function camera(width:number,height:number,hero:boolean|'portrait'|CameraView=false):M4 {
   const portrait=hero==='portrait';
-  const eye:V3=portrait?[0,2.7,7]:hero?[29,35,38]:[0,38,30],target:V3=portrait?[0,1.2,0]:[0,0,0];
+  const match=typeof hero==='object'?hero:null;
+  const eye:V3=match?[match.x,36,match.z+36]:portrait?[0,3.2,8]:hero?[29,35,38]:[0,38,30];
+  const target:V3=match?[match.x,0,match.z]:portrait?[0,1.35,0]:[0,0,0];
   const z=normalize([eye[0]-target[0],eye[1]-target[1],eye[2]-target[2]]);
   const x=normalize(cross([0,1,0],z)),y=cross(z,x);
   const view=new Float32Array([x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,-dot(x,eye),-dot(y,eye),-dot(z,eye),1]);
@@ -33,7 +36,7 @@ export function camera(width:number,height:number,hero:boolean|'portrait'=false)
       boundX=Math.max(boundX,Math.abs(dot(x,[xx,yy,zz])));
       boundY=Math.max(boundY,Math.abs(dot(y,[xx,yy,zz])));
     }
-  const spanX=portrait?4.1:Math.max((boundX+2)*2,(boundY+2)*2*aspect),spanY=spanX/aspect;
+  const spanX=match?match.span:portrait?4.9:Math.max((boundX+2)*2,(boundY+2)*2*aspect),spanY=spanX/aspect;
   const near=.1,far=150;
   const proj=new Float32Array([2/spanX,0,0,0,0,2/spanY,0,0,0,0,-2/(far-near),0,0,0,-(far+near)/(far-near),1]);
   return multiply(proj,view);
@@ -86,7 +89,7 @@ export class GLRenderer {
   private program:WebGLProgram;
   private meshes=new Map<Shape,{vao:WebGLVertexArrayObject,instances:WebGLBuffer,count:number}>();
   private batches=new Map<Shape,number[]>();
-  vp=identity(); quality:'high'|'low'='high'; calls=0;
+  vp=identity(); opacity=1; quality:'high'|'low'='high'; calls=0;
   constructor(public canvas:HTMLCanvasElement) {
     const gl=canvas.getContext('webgl2',{antialias:true,alpha:false,powerPreference:'high-performance'});
     if(!gl)throw Error('Tu navegador necesita WebGL 2 para mostrar la cancha.');
@@ -98,19 +101,21 @@ export class GLRenderer {
       layout(location=1) in vec3 normal;
       layout(location=2) in mat4 model;
       layout(location=6) in vec3 tint;
+      layout(location=7) in float opacity;
       uniform mat4 vp;
-      out vec3 color;out vec3 n;
+      out vec3 color;out vec3 n;out float coverage;
       void main(){
         gl_Position=vp*model*vec4(position,1.0);
         vec3 scale2=vec3(dot(model[0].xyz,model[0].xyz),dot(model[1].xyz,model[1].xyz),dot(model[2].xyz,model[2].xyz));
         n=normalize(mat3(model)*(normal/max(scale2,vec3(0.0001))));
-        color=tint;
+        color=tint;coverage=opacity;
       }`);
     const frag=shader(gl.FRAGMENT_SHADER,`#version 300 es
       precision highp float;
-      in vec3 color;in vec3 n;out vec4 outColor;
+      in vec3 color;in vec3 n;in float coverage;out vec4 outColor;
       void main(){
-        float light=0.64+0.36*max(0.0,dot(normalize(n),normalize(vec3(-0.35,1.0,0.55))));
+        if(coverage<0.99 && mod(floor(gl_FragCoord.x)+floor(gl_FragCoord.y),2.0)>=coverage*2.0)discard;
+        float light=0.72+0.28*max(0.0,dot(normalize(n),normalize(vec3(-0.35,1.0,0.55))));
         outColor=vec4(color*light,1.0);
       }`);
     const program=gl.createProgram()!;gl.attachShader(program,vs);gl.attachShader(program,frag);gl.linkProgram(program);
@@ -122,22 +127,23 @@ export class GLRenderer {
       gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,3,gl.FLOAT,false,24,0);
       gl.enableVertexAttribArray(1);gl.vertexAttribPointer(1,3,gl.FLOAT,false,24,12);
       gl.bindBuffer(gl.ARRAY_BUFFER,instances);
-      for(let n=0;n<4;n++){gl.enableVertexAttribArray(2+n);gl.vertexAttribPointer(2+n,4,gl.FLOAT,false,76,n*16);gl.vertexAttribDivisor(2+n,1);}
-      gl.enableVertexAttribArray(6);gl.vertexAttribPointer(6,3,gl.FLOAT,false,76,64);gl.vertexAttribDivisor(6,1);
+      for(let n=0;n<4;n++){gl.enableVertexAttribArray(2+n);gl.vertexAttribPointer(2+n,4,gl.FLOAT,false,80,n*16);gl.vertexAttribDivisor(2+n,1);}
+      gl.enableVertexAttribArray(6);gl.vertexAttribPointer(6,3,gl.FLOAT,false,80,64);gl.vertexAttribDivisor(6,1);
+      gl.enableVertexAttribArray(7);gl.vertexAttribPointer(7,1,gl.FLOAT,false,80,76);gl.vertexAttribDivisor(7,1);
       this.meshes.set(kind,{vao,instances,count:verts.length/6});this.batches.set(kind,[]);
     }
     gl.enable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);
   }
-  begin(hero=false) {
+  begin(hero:boolean|CameraView=false) {
     const ratio=Math.min(this.quality==='high'?1.75:1,window.devicePixelRatio||1);
     const w=Math.max(1,Math.floor(this.canvas.clientWidth*ratio)),h=Math.max(1,Math.floor(this.canvas.clientHeight*ratio));
     if(this.canvas.width!==w||this.canvas.height!==h){this.canvas.width=w;this.canvas.height=h;}
     const gl=this.gl;gl.viewport(0,0,w,h);gl.clearColor(.038,.116,.107,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-    this.vp=camera(w,h,hero);for(const list of this.batches.values())list.length=0;
+    this.vp=camera(w,h,hero);this.opacity=1;for(const list of this.batches.values())list.length=0;
   }
   add(kind:Shape,matrix:M4,color:string) {
     const n=parseInt(color.replace('#',''),16),list=this.batches.get(kind)!;
-    list.push(...matrix,((n>>16)&255)/255,((n>>8)&255)/255,(n&255)/255);
+    list.push(...matrix,((n>>16)&255)/255,((n>>8)&255)/255,(n&255)/255,this.opacity);
   }
   shape(kind:Shape,x:number,y:number,z:number,sx:number,sy:number,sz:number,color:string,ry=0,rz=0,rx=0) {
     this.add(kind,transform(x,y,z,sx,sy,sz,ry,rz,rx),color);
@@ -147,13 +153,14 @@ export class GLRenderer {
     this.calls=0;
     for(const [kind,list]of this.batches)if(list.length) {
       const mesh=this.meshes.get(kind)!;gl.bindVertexArray(mesh.vao);gl.bindBuffer(gl.ARRAY_BUFFER,mesh.instances);
-      gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(list),gl.DYNAMIC_DRAW);gl.drawArraysInstanced(gl.TRIANGLES,0,mesh.count,list.length/19);this.calls++;
+      gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(list),gl.DYNAMIC_DRAW);gl.drawArraysInstanced(gl.TRIANGLES,0,mesh.count,list.length/20);this.calls++;
     }
   }
-  project(x:number,y:number,z:number):{x:number,y:number} {
+  project(x:number,y:number,z:number):{x:number,y:number,inView:boolean} {
     const m=this.vp;
     return {x:(m[0]*x+m[4]*y+m[8]*z+m[12]+1)*.5*this.canvas.clientWidth,
-      y:(1-(m[1]*x+m[5]*y+m[9]*z+m[13]))*.5*this.canvas.clientHeight};
+      y:(1-(m[1]*x+m[5]*y+m[9]*z+m[13]))*.5*this.canvas.clientHeight,
+      inView:Math.abs(m[0]*x+m[4]*y+m[8]*z+m[12])<1&&Math.abs(m[1]*x+m[5]*y+m[9]*z+m[13])<1};
   }
   dispose(){this.gl.getExtension('WEBGL_lose_context')?.loseContext();}
 }

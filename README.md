@@ -29,9 +29,10 @@ La configuración opcional va en un archivo `.env` en la raíz, tomando [.env.ex
 | Cambiar a un compañero bot | Q | LT |
 | Poder simple / normal / especial | 1 / 2 / 3 | LB + A / X / Y |
 | Objeto | E | LB + B |
-| Pausa individual | Escape | Botón de pausa en pantalla |
+| Pausa individual | Escape | Start / Menu |
+| Tácticas durante el partido | T | View / Select |
 
-En **Cómo jugar** puedes elegir **Flechas + A/S/D**, conservar **WASD + J/K/L** o reasignar cada tecla. Las preferencias guardadas se mantienen.
+En **Cómo jugar** puedes elegir **Flechas + A/S/D**, conservar **WASD + J/K/L** o reasignar cada tecla. Las preferencias guardadas se mantienen. En los menús del partido, el mando usa arriba/abajo para enfocar, izquierda/derecha para cambiar opciones, A para aceptar y B para volver.
 
 Cada recuperación, rebote o recepción de un bot aliado entrega el control al humano conectado más cercano. Un pase dirigido prioriza a su autor; Q cancela esa prioridad. Nunca se desplaza a otro humano. Después de cambiar, suelta y vuelve a pulsar las acciones para usarlas; las cargas y objetos siguen perteneciendo a cada Pokémon.
 
@@ -41,17 +42,26 @@ Un pase a un bot entrega su control al soltar. Al pasar a otro humano o despejar
 
 ## Reglas del playtest
 
-- Dos tiempos de cinco minutos de juego activo, diez segundos de descanso y cambio de lado. Empate: hasta dos minutos de gol de oro; si nadie marca, empate final.
-- Cancha de **60 × 36**, área de **8 × 12**, con el campo completo visible. Rebotes, entradas, esquivas, tiro cargado y pase elevado. Sin faltas ni fuera de juego.
-- El anfitrión elige el ritmo antes de iniciar: **lento 75 %**, **equilibrado 90 %** o **rápido 105 %** de la carrera original. Solo cambia carrera y sprint; conserva velocidades de balón, reloj, poderes y atajadas.
-- Dificultad **fácil**, **normal** o **difícil** para todos los bots por igual. Comienza en equilibrado/normal. Cambiar ajustes invalida los listos; la revancha los conserva.
-- Los bots reparten cobertura, amplitud y profundidad alrededor de los humanos, con un solo presionante y un solo recolector por equipo. Los roles no dependen de la especie.
-- Doce especies, tres poderes por especie, con efectos de empuje, velocidad, barreras, proyectiles y control de zonas.
-- Simple: seis segundos de recarga. Normal: acciones de juego, con un límite contra la repetición de pases. Especial: un orbe neutral cada treinta segundos y una preparación interrumpible de 0,8 segundos.
-- Objetos neutrales cada veinte segundos: baya de velocidad, escudo de un golpe y bomba.
-- Salas privadas por código; entrada durante el partido, relevo por bot al desconectar y reserva de reconexión de treinta segundos. Dos salas simultáneas por servidor.
+- Dos tiempos de **tres minutos** de juego activo, diez segundos de descanso y cambio de lado. Empate: hasta dos minutos de gol de oro; si nadie marca, empate final.
+- Cancha de **72 × 44**, área de **8 × 12**, cámara cercana que sigue la jugada y minimapa con los diez personajes. El partido ocupa toda la ventana. Rebotes, entradas, esquivas, tiro cargado y pase elevado; sin faltas ni fuera de juego.
+- El anfitrión elige ritmo y dificultad antes de iniciar. Cambiarlos invalida los listos; la revancha los conserva. El reloj y las duraciones de efectos no se ralentizan.
+- En individual, tus aliados mantienen dificultad normal y los rivales usan la elegida. Online, todos los bots comparten dificultad. Comienza en equilibrado/normal.
+- Formaciones **1-2-1, 2-2 y 1-1-2**; estilos **equilibrado, posesión y contraataque**. Los puestos se sugieren por atributos y se pueden intercambiar en el lobby sin cambiar de Pokémon ni de controlador.
+- El capitán organiza su equipo; el anfitrión puede organizar un equipo sin humanos conectados. Durante el partido, **T** abre las tácticas: el último plan preparado se aplica en el próximo saque inicial, después de un gol o del descanso. Online el partido continúa.
+- Los bots conservan su puesto de referencia, con cobertura temporal cuando alguien sale, un presionante y un recolector por equipo. La dificultad cambia reacción, presión, precisión y uso de poderes; los bots escalonan sus poderes normal y especial.
+- Doce especies y Ditto con siluetas propias. Tres poderes por especie. **Manto nocturno** mantiene visibles a los cuatro aliados de campo durante 1,5 s y evita entradas/contacto rival; los poderes y las intercepciones siguen funcionando.
+- Normal: carga mediante acciones de juego, con un límite contra la repetición de pases. Especial: recoge el orbe y prepara el poder durante 0,8 s; esa preparación se puede interrumpir. Aturdimiento máximo de 0,8 s, seguido por 1,2 s de protección.
+- Objetos neutrales: baya de velocidad, escudo de un golpe y bomba. Salas privadas por código, entrada durante el partido y reconexión durante treinta segundos; dos salas por servidor.
 
-La pantalla de cada Pokémon explica sus tres poderes. Los valores y descripciones están en [catalog.ts](packages/game/src/catalog.ts).
+| Ritmo | Carrera y sprint¹ | Balón¹ | Impulsos/proyectiles¹ | Recarga simple | Orbe | Objetos |
+| --- | --- | --- | --- | --- | --- | --- |
+| Lento | 55 % | 80 % | 70 % | 8 s | 45 s | 30 s |
+| Equilibrado | 65 % | 90 % | 85 % | 7 s | 40 s | 25 s |
+| Rápido | 80 % | 100 % | 100 % | 6 s | 35 s | 20 s |
+
+¹ Factores sobre las velocidades base del motor. El sprint conserva su aceleración respecto a la carrera; los pases elevados ajustan su vuelo para alcanzar al receptor.
+
+La pantalla de cada Pokémon explica sus tres poderes. Las reglas están en [catalog.ts](packages/game/src/catalog.ts), los ritmos en [tuning.ts](packages/game/src/tuning.ts) y las formaciones en [team-plan.ts](packages/game/src/team-plan.ts).
 
 ## Verificar y construir
 

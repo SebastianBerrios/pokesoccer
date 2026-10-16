@@ -1,86 +1,78 @@
-import { FIELD, fieldPoint } from './geometry.ts';
+import { FIELD } from './catalog.ts';
+import { fieldPoint } from './geometry.ts';
 import { clamp, distance, unit } from './math.ts';
 import { attackDirection, byId } from './state.ts';
+import { positionFor } from './team-plan.ts';
 import type { Fighter, MatchState, TacticalRole, Team, Vec } from './types.ts';
 
-type Anchor = {role:TacticalRole; point:Vec};
-function assign(people:Fighter[], anchors:Anchor[], previous:Record<string,TacticalRole>) {
-  let best:Anchor[] = [], bestCost=Infinity;
-  function visit(rest:Anchor[], chosen:Anchor[], cost:number) {
-    if(cost>=bestCost)return;
-    const p=people[chosen.length];
-    if(!p){best=chosen;bestCost=cost;return;}
-    for(const anchor of rest)visit(rest.filter(a=>a!==anchor),[...chosen,anchor],
-      cost+distance(p,anchor.point)+(previous[p.id]===anchor.role?0:3));
-  }
-  visit(anchors,[],0);return best;
-}
-export function updateTactics(s:MatchState) {
+export function updateTactics(s: MatchState) {
   const carrier=byId(s,s.ball.owner);
   for(const team of [0,1] as Team[]) {
-    const t=s.tactics[team], dir=attackDirection(s,team);
+    const t=s.tactics[team],plan=s.teamPlans[team],dir=attackDirection(s,team);
     const allies=s.players.filter(p=>p.team===team&&!p.keeper);
-    const rivals=s.players.filter(p=>p.team!==team&&!p.keeper&&p.cloak<=0);
-    const own=carrier?.team===team;
-    // Remember the last visible location; an invisible opponent never supplies a target.
-    if(!carrier||own||carrier.cloak<=0)t.focus={x:s.ball.x,z:s.ball.z};
-    const focus=t.focus, forward=dir*focus.x;
-    let anchors:Anchor[];
-    if(own) {
-      t.presser=null;
-      const wingX=carrier?.keeper?forward+12:forward-1;
-      anchors=[
-        {role:'cover',point:{x:dir*Math.min(-5,forward-11),z:clamp(focus.z*.25,-4,4)}},
-        {role:'left',point:{x:dir*wingX,z:-FIELD.halfDepth*.68}},
-        {role:'right',point:{x:dir*wingX,z:FIELD.halfDepth*.68}},
-        {role:'forward',point:{x:dir*(forward+10),z:-focus.z*.5}},
-      ];
-      if(carrier&&!carrier.keeper) {
-        // The carrier occupies one flank; the other three preserve cover, width and depth.
-        anchors=anchors.filter(a=>a.role!==(carrier.z<0?'left':'right'));
-      }
-    } else {
+    const own=carrier?.team===team,focus={x:s.ball.x,z:s.ball.z},forward=dir*focus.x;
+    t.focus=focus;
+    const possession=plan.style==='possession',counter=plan.style==='counterattack';
+    const center=own?clamp(forward*.48-3,-15,12):clamp(forward*.38-(counter?16:11),-24,0);
+    const length=FIELD.halfWidth*(possession?.4:.52),width=FIELD.halfDepth*(possession?.76:1);
+    const roles:Record<string,TacticalRole>={},targets:Record<string,Vec>={};
+    for(const p of allies) {
+      const home=positionFor(plan,p.slot);
+      let x=center+home.x*length,z=home.z*width+clamp(focus.z*.16,-3,3);
+      if(home.role==='cover')x=Math.min(x,own?Math.min(-4,forward-10):forward-8);
+      if(own&&home.role==='forward')x=Math.max(x,forward+(counter?11:7));
+      if(own&&possession&&home.role!=='cover'&&home.role!=='forward')x=forward-5;
+      if(!own&&counter&&home.role==='forward')x=Math.max(x,-4);
+      roles[p.id]=home.role;
+      targets[p.id]=fieldPoint({x:dir*x,z},3);
+    }
+    if(own&&carrier&&!carrier.keeper)roles[carrier.id]='carrier';
+
+    // Only the designated press leaves the block. Keep a nearby press stable, never exchange home positions.
+    if(!own) {
       const eligible=allies.filter(p=>p.stun<=0&&p.cast<=0);
       const human=eligible.filter(p=>p.controller&&distance(p,focus)<3.5)
         .sort((a,b)=>distance(a,focus)-distance(b,focus)||a.id.localeCompare(b.id))[0];
-      const bots=eligible.filter(p=>!p.controller).sort((a,b)=>distance(a,focus)-distance(b,focus)||a.id.localeCompare(b.id));
+      let bots=eligible.filter(p=>!p.controller&&
+        (roles[p.id]!=='cover'||forward<-10||allies.filter(q=>roles[q.id]==='cover').length>1)&&
+        distance(targets[p.id],focus)<19);
+      if(!bots.length)bots=eligible.filter(p=>!p.controller);
+      bots.sort((a,b)=>distance(a,focus)-distance(b,focus)||a.id.localeCompare(b.id));
       const old=bots.find(p=>p.id===t.presser);
-      const press=human??(old&&distance(old,focus)<(bots[0]?distance(bots[0],focus):0)+7?old:bots[0]);
+      const press=human??(old&&distance(old,focus)<distance(bots[0]??old,focus)+3?old:bots[0]);
       t.presser=press?.id??null;
-      anchors=[
-        {role:'cover',point:{x:dir*Math.min(-7,forward-10),z:clamp(focus.z*.4,-4,4)}},
-        {role:'left',point:{x:dir*(forward-5),z:-FIELD.halfDepth*.43}},
-        {role:'right',point:{x:dir*(forward-5),z:FIELD.halfDepth*.43}},
-      ];
-      // Shift the two screen positions into visible passing lanes, retaining their side.
-      for(const anchor of anchors.filter(a=>a.role!=='cover')) {
-        const threat=rivals.filter(p=>p.id!==carrier?.id&&(anchor.role==='left'?p.z<0:p.z>=0))
-          .sort((a,b)=>dir*a.x-dir*b.x)[0];
-        if(threat)anchor.point={x:dir*Math.min(forward-3,dir*threat.x-2),z:(focus.z+threat.z)*.5};
-      }
-      if(!press)anchors.push({role:'forward',point:focus});
+      if(press){roles[press.id]='press';targets[press.id]=focus;}
+    } else t.presser=null;
+
+    // When a defender carries or a human leaves the block, one support covers until they return.
+    const covered=allies.some(p=>roles[p.id]==='cover'&&(!p.controller||distance(p,targets[p.id])<8));
+    if(!covered) {
+      const coverPoint=fieldPoint({x:dir*Math.min(-6,forward-11),z:clamp(focus.z*.22,-5,5)},3);
+      const substitute=allies.filter(p=>!p.controller&&p.id!==carrier?.id&&p.id!==t.presser)
+        .sort((a,b)=>distance(a,coverPoint)-distance(b,coverPoint)||a.id.localeCompare(b.id))[0];
+      if(substitute){roles[substitute.id]='cover';targets[substitute.id]=coverPoint;}
     }
-    for(const anchor of anchors)anchor.point=fieldPoint(anchor.point,3);
-    const active=allies.filter(p=>own?p.id!==carrier?.id:p.id!==t.presser);
-    // Humans consume the nearest useful space before bots are placed around them.
-    active.sort((a,b)=>Number(!!b.controller)-Number(!!a.controller)||a.id.localeCompare(b.id));
-    const assigned=assign(active,anchors,t.roles),roles:Record<string,TacticalRole>={},targets:Record<string,Vec>={};
-    active.forEach((p,i)=>{
-      const anchor=assigned[i];if(!anchor)return;
-      roles[p.id]=anchor.role;let point=anchor.point;
-      if(own&&carrier&&distance(point,carrier)<6) {
-        const v=unit(point.x-carrier.x,point.z-carrier.z||1);
-        point=fieldPoint({x:carrier.x+v.x*6,z:carrier.z+v.z*6},2);
+    if(own&&carrier&&!carrier.keeper&&!allies.some(p=>p.id!==carrier.id&&roles[p.id]==='forward')) {
+      const runner=allies.filter(p=>!p.controller&&p.id!==carrier.id&&roles[p.id]!=='cover')
+        .sort((a,b)=>distance(a,carrier)-distance(b,carrier)||a.id.localeCompare(b.id))[0];
+      if(runner){roles[runner.id]='forward';targets[runner.id]=fieldPoint({x:dir*(forward+9),z:clamp(runner.z*.65,-10,10)},3);}
+    }
+    if(own&&carrier) {
+      for(const p of allies) {
+        if(p.controller||p.id===carrier.id||roles[p.id]==='cover')continue;
+        const target=targets[p.id];
+        const blockers=[carrier,...allies.filter(q=>q.controller&&q.id!==carrier.id)];
+        for(const human of blockers)if(distance(target,human)<6) {
+          const v=unit(target.x-human.x,target.z-human.z||((p.slot%2)*2-1));
+          Object.assign(target,fieldPoint({x:human.x+v.x*6,z:human.z+v.z*6},3));
+        }
       }
-      targets[p.id]=point;
-    });
-    if(own&&carrier&&!carrier.keeper){roles[carrier.id]='carrier';targets[carrier.id]={x:carrier.x,z:carrier.z};}
-    if(t.presser){roles[t.presser]='press';targets[t.presser]={...focus};}
+    }
     t.roles=roles;t.targets=targets;t.collector=null;
     const cover=allies.find(p=>roles[p.id]==='cover');
     const choices=allies.filter(p=>!p.controller&&p.id!==carrier?.id&&roles[p.id]!=='press'&&roles[p.id]!=='cover')
-      .flatMap(p=>s.pickups.filter(o=>(o.kind==='orb'?p.special<100:!p.item)&&distance(p,o)<7&&
-        (own||!!cover&&dir*o.x<forward-2&&distance(o,targets[p.id]??p)<4)).map(o=>({p,o,d:distance(p,o)})))
+      .flatMap(p=>s.pickups.filter(o=>(o.kind==='orb'?p.special<100:!p.item)&&distance(p,o)<9&&
+        (own||!!cover&&dir*o.x<forward-2&&distance(o,targets[p.id])<5)).map(o=>({p,o,d:distance(p,o)})))
       .sort((a,b)=>a.d-b.d||a.p.id.localeCompare(b.p.id)||a.o.id-b.o.id);
     if(choices[0]){t.collector=choices[0].p.id;targets[choices[0].p.id]=choices[0].o;}
   }

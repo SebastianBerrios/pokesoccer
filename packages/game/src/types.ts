@@ -2,7 +2,8 @@ export type Team = 0 | 1;
 export type Species = 'pikachu' | 'charizard' | 'blastoise' | 'venusaur' | 'gengar' | 'machamp' | 'alakazam' | 'snorlax' | 'lapras' | 'dragonite' | 'lucario' | 'greninja' | 'ditto';
 export type Phase = 'lobby' | 'kickoff' | 'playing' | 'goal' | 'halftime' | 'overtime' | 'finished';
 export type Item = 'berry' | 'shield' | 'bomb';
-export type AbilityKind = 'dash' | 'push' | 'projectile' | 'zone' | 'shield' | 'pull' | 'blink' | 'wall' | 'redirect' | 'buff' | 'shot' | 'cloak';
+export type AbilityKind = 'dash' | 'push' | 'projectile' | 'zone' | 'shield' | 'pull' | 'blink' | 'wall' | 'redirect' | 'buff' | 'shot' | 'ghost';
+export type FighterAction = 'pass' | 'shot' | 'tackle' | 'dodge' | 'cast' | 'hit';
 export interface Ability {
   name: string; description: string; kind: AbilityKind;
   color: string; range: number; radius: number; duration: number;
@@ -25,11 +26,12 @@ export interface Fighter extends Vec {
   controller: string | null; epoch: number;
   stamina: number; simpleCd: number; normal: number; special: number; item: Item | null;
   stun: number; immunity: number; slow: number; slowTime: number;
-  shield: number; boost: number; buff: number; cloak: number; noSprint: number;
+  shield: number; boost: number; buff: number; ghost: number; noSprint: number;
   actionCd: number; dodgeTime: number; charge: number;
   cast: number; castSlot: number; castX: number; castZ: number;
   aiTimer: number; aiX: number; aiZ: number; aiShoot: boolean; aiSprint: boolean;
   passCredit: number; anim: string;
+  action: FighterAction | null; actionStarted: number; actionUntil: number;
 }
 export interface Ball extends Vec {
   y: number; vx: number; vy: number; vz: number;
@@ -52,14 +54,21 @@ export interface Human {
 export type Pace = 'slow' | 'balanced' | 'fast';
 export type Difficulty = 'easy' | 'normal' | 'hard';
 export interface MatchSettings { pace: Pace; difficulty: Difficulty }
+export type MatchMode = 'solo' | 'online';
+export type Formation = '1-2-1' | '2-2' | '1-1-2';
+export type PlayStyle = 'balanced' | 'possession' | 'counterattack';
+export type Lineup = [number, number, number, number];
+export interface TeamPlan { formation: Formation; style: PlayStyle; lineup: Lineup }
 export type TacticalRole = 'cover' | 'left' | 'right' | 'forward' | 'press' | 'carrier';
-export interface TeamTactics { focus: Vec; presser: string | null; collector: string | null; roles: Record<string, TacticalRole>; targets: Record<string, Vec> }
+export interface TeamTactics { focus: Vec; presser: string | null; collector: string | null; powerReadyAt: number; roles: Record<string, TacticalRole>; targets: Record<string, Vec> }
 export interface KeeperPossession {
   keeperId: string; capturedAt: number; remaining: number; controller: string | null;
   previousFighterId: string | null; targetId: string | null; retreat: Record<string, Vec>;
 }
 export interface MatchState {
   settings: MatchSettings; keeperPossession: KeeperPossession | null; tactics: [TeamTactics, TeamTactics];
+  mode: MatchMode; teamPlans: [TeamPlan, TeamPlan]; pendingTeamPlans: [TeamPlan | null, TeamPlan | null];
+  autoLineup: [boolean, boolean]; restartTeam: Team | null;
   version: 1; tick: number; time: number; phase: Phase; remaining: number; phaseTime: number;
   half: number; score: [number, number]; players: Fighter[]; ball: Ball;
   effects: Effect[]; pickups: Pickup[]; humans: Human[]; host: string | null;
@@ -75,6 +84,8 @@ export type ClientMessage =
   | { type: 'team'; team: Team }
   | { type: 'ready'; ready: boolean }
   | { type: 'configure'; settings: MatchSettings }
+  | { type: 'configureTeam'; team: Team; formation: Formation; style: PlayStyle }
+  | { type: 'lineup'; team: Team; lineup: Lineup | 'auto' }
   | { type: 'start' | 'rematch' | 'leave' }
   | { type: 'ping'; at: number };
 export type ServerMessage =

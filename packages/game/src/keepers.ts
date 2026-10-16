@@ -1,10 +1,12 @@
 import { distance, segmentDistance, unit } from './math.ts';
 import { passBall, passTarget } from './ball.ts';
 import { attackDirection, byId, endKeeperPossession } from './state.ts';
+import { PACE_PROFILES } from './tuning.ts';
+import { setAction } from './state.ts';
 import type { Fighter, InputFrame, MatchState, Vec } from './types.ts';
 
 export function visibleRivals(s: MatchState, p: Fighter) {
-  return s.players.filter(q => q.team !== p.team && q.cloak <= 0);
+  return s.players.filter(q => q.team !== p.team);
 }
 export function laneClearance(s: MatchState, p: Fighter, target: Vec): number {
   return Math.min(20, ...visibleRivals(s, p).map(q => segmentDistance(q, p, target)));
@@ -23,9 +25,9 @@ export function distributeKeeper(s: MatchState, p: Fighter, action: 'pass' | 'lo
   if (action === 'clear') {
     const v = unit(p.facingX, p.facingZ), b = s.ball;
     Object.assign(b, { owner: null, x: p.x + v.x * .95, z: p.z + v.z * .95, y: .7,
-      vx: v.x * 29, vz: v.z * 29, vy: 7, pickupLock: .25, lastTouch: p.id,
+      vx: v.x * 29 * PACE_PROFILES[s.settings.pace].ball, vz: v.z * 29 * PACE_PROFILES[s.settings.pace].ball, vy: 7, pickupLock: .25, lastTouch: p.id,
       lastTeam: p.team, passer: null, passSession: null, passTarget: null, shot: false, curve: 0, fiery: 0 });
-    p.anim = 'kick';
+    p.anim = 'kick';setAction(s,p,'pass',.4);
     endKeeperPossession(s);
   } else {
     const receiver = target ?? passTarget(s, p);

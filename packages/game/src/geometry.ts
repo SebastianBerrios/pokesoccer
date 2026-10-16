@@ -2,7 +2,7 @@ import { clamp } from './math.ts';
 import type { Vec } from './types.ts';
 
 export const FIELD = {
-  halfWidth: 30, halfDepth: 18, goalHalf: 3.6, goalHeight: 3.2,
+  halfWidth: 36, halfDepth: 22, goalHalf: 3.6, goalHeight: 3.2,
   areaDepth: 8, areaHalf: 6, playerRadius: .65, ballRadius: .3, keeperInset: 1.8,
 } as const;
 export function fieldPoint(point: Vec, margin: number = FIELD.playerRadius): Vec {

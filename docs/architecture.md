@@ -27,17 +27,19 @@ Cada personaje dispone de una época de control única. Cambiar a un bot, recone
 - Diez personajes por sala: cuatro de campo y un arquero por equipo; como máximo cuatro humanos por lado.
 - Un humano controla exactamente un personaje. Solo se transfiere a bots del mismo equipo. Las cargas y objetos no se transfieren.
 - Toda adquisición de un bot de campo transfiere el control al humano conectado más cercano. El autor de un pase dirigido tiene prioridad mientras no cambie manualmente; los empates se resuelven por id y nunca se desplaza a otro humano.
-- Simple: 6 s. Normal: 100 puntos; pase completado, recuperación o tiro atajado dan 25, gol da 50. Máximo 50 por pases para cada Pokémon durante una posesión del equipo.
-- Especial: orbe neutral cada 30 s; una carga no se acumula con otra. Preparación de 0,8 s, interrumpible, consumiendo al comenzar. Intentos inválidos no consumen.
+- Simple: 6–8 s según el ritmo. Normal: 100 puntos; pase completado, recuperación o tiro atajado dan 25, gol da 50. Máximo 50 por pases para cada Pokémon durante una posesión del equipo.
+- Especial: orbe neutral cada 35–45 s según el ritmo; una carga no se acumula con otra. Preparación de 0,8 s, interrumpible, consumiendo al comenzar. Intentos inválidos no consumen.
 - Aturdimiento máximo 0,8 s y protección posterior de 1,2 s; ralentización máxima 40 %. No hay daño ni tabla de debilidades.
 - Reloj detenido durante saque inicial, gol y descanso. El saque del arquero mantiene el reloj activo. Cada gol suma uno.
 - Bots usan los mismos movimientos, cargas, objetos y reglas que humanos. Ditto ataja automáticamente, sin poderes, y solo acepta control temporal para dirigir su saque.
 
-## Geometría y ajustes compartidos
+## Geometría, cámara y ritmo
 
-[geometry.ts](../packages/game/src/geometry.ts) define el campo de 60 × 36, área de 8 × 12, dimensiones de arcos y márgenes. Movimiento, rebotes, poderes, posiciones, objetos, estadio y cámara usan esta fuente. La cámara calcula un encuadre ortográfico para las esquinas y los indicadores, según la proporción del viewport.
+[geometry.ts](../packages/game/src/geometry.ts) define el campo de 72 × 44, área de 8 × 12, arcos y márgenes. Movimiento, rebotes, poderes, posiciones, objetos y estadio usan esa fuente. [match-camera.ts](../apps/client/src/match-camera.ts) sigue la pelota y al jugador cercano con orientación fija a 45°, encuadre ortográfico de 44–52 unidades y suavizado independiente del FPS. Reserva espacio para el HUD, prioriza la pelota en pases largos y reinicia al reanudar. El minimapa conserva la visión global y un indicador señala al jugador propio fuera de cámara.
 
-El comando `configure` transporta `MatchSettings` por worker y WebSocket. `Game.configure` valida anfitrión conectado, lobby y valores permitidos, e invalida todos los listos. `rematch` conserva ajustes. `moveFighter` recibe las mismas opciones en servidor y predicción: solo carrera y sprint usan el factor de ritmo.
+El comando `configure` transporta `MatchSettings` por worker y WebSocket. `Game.configure` valida anfitrión conectado, lobby y valores permitidos, e invalida todos los listos. `rematch` conserva ajustes. [tuning.ts](../packages/game/src/tuning.ts) centraliza factores de carrera, balón, impulsos y proyectiles, junto con recargas y apariciones. `moveFighter` comparte los mismos ajustes con la predicción del cliente. El reloj avanza con el paso fijo original; los pases elevados compensan la duración del vuelo.
+
+Los modelos se dibujan siempre, incluido Manto nocturno: el estado `ghost` solo evita entradas y contacto corporal rival de los jugadores de campo, durante 1,5 s. Se representa con transparencia tramada, aros y etiquetas; no oculta al jugador ni a la IA. Las paredes de habilidades también usan tramado para conservar la lectura. `action`, `actionStarted` y `actionUntil` conservan la animación de pase, tiro, entrada, esquiva, poder y golpe entre snapshots.
 
 ## Posesión y saque de Ditto
 
@@ -49,9 +51,17 @@ La retirada sustituye las entradas de rivales humanos y bots dentro del área. L
 
 ## Tácticas y dificultad
 
-`tactics.ts` asigna espacios de referencia 1–2–1 a partir de posesión y posiciones humanas. Con balón conserva cobertura, amplitud y una opción adelantada; el portador ocupa un espacio y los demás se separan. Sin balón conserva un presionante válido, y el resto cubre espacios y líneas hacia rivales visibles. Solo un bot puede recoger un objeto, sin abandonar cobertura ni presión.
+[team-plan.ts](../packages/game/src/team-plan.ts) define las posiciones de 1-2-1, 2-2 y 1-1-2 y los estilos equilibrado, posesión y contraataque. `TeamPlan.lineup` asigna los cuatro slots a esas posiciones; no cambia id, especie ni controlador. La sugerencia automática maximiza atributos entre las 24 permutaciones. Cualquier especie puede ocupar cualquier puesto. Al cambiar formación en juego se minimiza la distancia entre posiciones usando siempre el plan activo.
 
-`ai.ts` usa esas asignaciones y evalúa líneas de pase y tiro antes de conducir hacia el arco. Los roles no consultan la especie. La dificultad solo cambia el intervalo de decisión: fácil 350–500 ms, normal 180–300 ms y difícil 100–160 ms, con la semilla compartida. Movimiento y sprint continúan entre decisiones, con las mismas reglas físicas. Un rival invisible no actualiza el foco: se usa la última posición visible.
+`configureTeam` permite cambiar formación/estilo al capitán conectado, o al anfitrión para un equipo sin humanos conectados. En el lobby se aplica inmediatamente e invalida los listos de ese equipo. Durante un partido reemplaza `pendingTeamPlans`; volver al plan activo cancela el pendiente. `lineup` permite intercambios o recuperar la sugerencia automática solo en el lobby.
+
+El motor aplica ambos pendientes en `resetPositions`, al finalizar la cuenta atrás del saque, y renueva las épocas una sola vez. Los goles conservan posiciones durante la celebración. Si termina el período, pasa al descanso antes de reposicionar; no crea un saque intermedio. Reconectar conserva planes activos/pendientes. La revancha conserva los activos y elimina los pendientes.
+
+`tactics.ts` parte de posiciones estables: una cobertura detrás de la pelota, bandas y profundidad. Solo el presionante abandona el bloque para disputar. Hay sustituciones temporales de cobertura y desmarque, con regreso al puesto al cambiar la situación. Un solo bot recoge objetos sin abandonar cobertura ni presión. Posesión acorta apoyos y favorece devoluciones; contraataque baja el bloque y busca salidas verticales.
+
+`ai.ts` evalúa líneas de pase/tiro y conduce hacia el arco. `BOT_PROFILES` controla reacción (fácil 400–600 ms, normal 220–340 ms, difícil 120–200 ms), entradas, distancia de presión, error de tiro y uso de poderes mediante la semilla compartida. Movimiento y sprint continúan entre decisiones. La ventana `powerReadyAt` escalona poderes normales/especiales entre bots del mismo equipo, sin limitar a humanos.
+
+`MatchState.mode` identifica individual/online explícitamente: el worker crea `solo` y el servidor `online`. En individual los aliados usan normal y los rivales la dificultad elegida; online ambos equipos usan la misma. El número de humanos conectados no cambia el modo.
 
 ## Red y límites
 
@@ -65,8 +75,8 @@ Una desconexión libera el personaje a la IA y reserva el puesto humano durante 
 
 El plan inicial proponía Three.js y Colyseus. El entorno bloqueó la red de paquetes y esos módulos no estaban en caché. Se implementó un renderizador WebGL 2 con instancias agrupadas por cinco mallas básicas y un transporte WebSocket usando `ws`, disponible localmente. El motor y sus contratos permanecen separados de ambas decisiones.
 
-Los doce modelos y el estadio se construyen con geometría propia, sin descargar sprites o modelos. Las miniaturas se renderizan con la misma geometría. El modo de calidad baja reduce detalles y resolución de dibujo. El sonido usa Web Audio.
+Los trece modelos (doce especies y Ditto) y el estadio se construyen con geometría propia, sin descargar sprites o modelos. Las miniaturas se renderizan con la misma geometría. El modo de calidad baja reduce detalles y resolución de dibujo. El sonido usa Web Audio.
 
 ## Unidades para revisar cambios futuros
 
-Mantén las reglas junto a sus pruebas de simulación; el protocolo y servidor junto a las pruebas de red; y los cambios de interacción junto a la prueba de navegador correspondiente. Las pruebas de carga acortan los tiempos únicamente mediante opciones del servidor de pruebas: el servidor publicado siempre usa 300 segundos por tiempo y 120 de prórroga.
+Mantén las reglas junto a sus pruebas de simulación; el protocolo y servidor junto a las pruebas de red; y los cambios de interacción junto a la prueba de navegador correspondiente. Las pruebas de carga acortan los tiempos únicamente mediante opciones del servidor de pruebas: los valores predeterminados son 180 segundos por tiempo y 120 de prórroga.

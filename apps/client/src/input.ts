@@ -23,6 +23,7 @@ export class Controls {
     window.addEventListener('blur',()=>this.keys.clear());
     document.addEventListener('visibilitychange',()=>this.keys.clear());
   }
+  releaseActions() { this.blocked=new Set(['pass','shoot','lob','dodge','switch','simple','normal','special','item']); }
   rebind(action:Binding,code:string) {
     const other=(Object.keys(this.bindings) as Binding[]).find(k=>k!==action&&this.bindings[k]===code);
     if(other)this.bindings[other]=this.bindings[action];

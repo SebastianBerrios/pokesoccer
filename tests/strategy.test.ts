@@ -40,7 +40,7 @@ describe('geometría, ajustes y predicción',()=>{
     g.state.phase='playing';expect(()=>g.configure('a',{pace:'fast',difficulty:'normal'})).toThrow(/lobby/);
     g.state.phase='finished';g.rematch('a');expect(g.state.settings).toEqual({pace:'slow',difficulty:'easy'});
   });
-  it.each([['slow',.75],['balanced',.9],['fast',1.05]] as const)('escala carrera y sprint %s sin cambiar el desplazamiento especial',(pace,multiplier)=>{
+  it.each([['slow',.55],['balanced',.65],['fast',.8]] as const)('escala carrera y sprint %s y comparte movimiento con predicción',(pace,multiplier)=>{
     const g=setup(),p=controlled(g.state,'h0')!;
     const base=5.8+POKEMON[p.species].stats[0]*.42;
     const settings={pace,difficulty:'normal' as const};
@@ -57,7 +57,7 @@ describe('geometría, ajustes y predicción',()=>{
     Object.assign(s.ball,{owner:null,x:24,z:15,y:2,vx:10,vz:4,vy:0});updateBall(s,.1);
     expect(s.ball.vx).toBeGreaterThan(0);expect(s.ball.vz).toBeGreaterThan(0);
     p.x=24;p.z=14;p.facingX=1;p.facingZ=0;executeAbility(s,p,POKEMON.gengar.abilities[0]);expect(p.x).toBeGreaterThan(24);
-    Object.assign(s.ball,{owner:null,x:29.5,z:15,y:2,vx:10,vz:0});updateBall(s,.1);expect(s.ball.vx).toBeLessThan(0);
+    Object.assign(s.ball,{owner:null,x:FIELD.halfWidth-.5,z:15,y:2,vx:10,vz:0});updateBall(s,.1);expect(s.ball.vx).toBeLessThan(0);
   });
   it.each([[1440,675],[1024,443],[390,400],[1920,330]])('encuadra cancha, arcos y etiquetas a %i × %i',(w,h)=>{
     const m=camera(w,h);
@@ -122,11 +122,11 @@ describe('saque temporal de Ditto',()=>{
     input(g,'h0',{moveX:1});expect(a.x).toBeGreaterThan(0);
   });
   it('permite saque rápido, transfiere al bot al soltar y termina retirada y protección',()=>{
-    const g=setup(),s=g.state,r=s.players[5];r.x=-27;r.z=0;
+    const g=setup(),s=g.state,r=s.players[5];r.x=-FIELD.halfWidth+3;r.z=0;
     const keeper=capture(g),hold=s.keeperPossession!;expect(hold.retreat[r.id]).toBeDefined();
     const target=s.players[1];distributeKeeper(s,keeper,'pass',target);
     expect(s.keeperPossession).toBe(null);expect(controlled(s,'h0')!.id).toBe(target.id);
-    expect(s.ball.passTarget).toBe(target.id);expect(s.ball.owner).toBe(null);expect(r.x).toBe(-27);
+    expect(s.ball.passTarget).toBe(target.id);expect(s.ball.owner).toBe(null);expect(r.x).toBe(-FIELD.halfWidth+3);
     // A rival can contest the very next catch after release.
     catchBall(s,r);expect(s.ball.owner).toBe(r.id);
   });
@@ -135,12 +135,12 @@ describe('saque temporal de Ditto',()=>{
       const g=setup(),s=g.state,keeper=capture(g);keeper.facingX=0;keeper.facingZ=1;
       distributeKeeper(s,keeper,action,s.players[1]);
       expect(s.ball.owner).toBe(null);expect(s.keeperPossession).toBe(null);
-      if(action==='clear'){expect(s.ball.vx).toBe(0);expect(s.ball.vz).toBe(29);expect(s.ball.passTarget).toBe(null);}
-      else {expect(s.ball.passTarget).toBe('0-1');expect(s.ball.vy).toBe(action==='pass'?.9:Math.max(6.8,s.ball.vy));}
+      if(action==='clear'){expect(s.ball.vx).toBe(0);expect(s.ball.vz).toBeCloseTo(29*.9);expect(s.ball.passTarget).toBe(null);}
+      else {expect(s.ball.passTarget).toBe('0-1');if(action==='pass')expect(s.ball.vy).toBe(.9);else expect(s.ball.vy).toBeGreaterThan(5);}
     }
   });
   it('regresa al personaje previo al pasar a otro humano, o a uno libre si está ocupado',()=>{
-    const g=setup(4),s=g.state,original=controlled(s,'h3')!;original.x=-27;original.z=0;
+    const g=setup(4),s=g.state,original=controlled(s,'h3')!;original.x=-FIELD.halfWidth+2;original.z=0;
     const keeper=capture(g),recipient=controlled(s,'h0')!;
     distributeKeeper(s,keeper,'pass',recipient);expect(controlled(s,'h3')!.id).toBe(original.id);expect(recipient.controller).toBe('h0');
     capture(g);const human=s.humans.find(h=>h.id==='h0')!;transfer(s,human,original);
@@ -149,10 +149,10 @@ describe('saque temporal de Ditto',()=>{
   });
   it('retira también humanos y bloquea reingreso a pie, con dash y teletransporte',()=>{
     const g=setup(),s=g.state;g.addHuman('r','R',1);const rival=controlled(s,'r')!;
-    rival.x=-27;rival.z=0;capture(g);const x=rival.x;
+    rival.x=-FIELD.halfWidth+3;rival.z=0;capture(g);const x=rival.x;
     input(g,'r',{moveX:-1,shoot:true});expect(rival.x).toBeGreaterThan(x);
     for(let i=0;i<40;i++)input(g,'r',{moveX:-1});expect(inArea(rival,1,FIELD.playerRadius)).toBe(false);
-    rival.x=-21;rival.z=0;rival.facingX=-1;rival.facingZ=0;
+    rival.x=-FIELD.halfWidth+9;rival.z=0;rival.facingX=-1;rival.facingZ=0;
     executeAbility(s,rival,POKEMON.gengar.abilities[0]);expect(inArea(rival,1,FIELD.playerRadius)).toBe(false);
     executeAbility(s,rival,POKEMON.pikachu.abilities[0]);
     for(let i=0;i<10;i++)input(g,'r',{moveX:-1});expect(inArea(rival,1,FIELD.playerRadius)).toBe(false);
@@ -176,7 +176,7 @@ describe('saque temporal de Ditto',()=>{
   });
   it('evita devolver al atacante de enfrente y despeja si bloquean todas las líneas',()=>{
     const g=setup(0),s=g.state,k=capture(g),mates=s.players.filter(p=>p.team===0&&!p.keeper),rivals=s.players.filter(p=>p.team===1&&!p.keeper);
-    mates.forEach((p,i)=>{p.x=-15;p.z=(i-1.5)*5;});rivals.forEach((p,i)=>{p.x=-21.6;p.z=mates[i].z/2;});
+    mates.forEach((p,i)=>{p.x=-15;p.z=(i-1.5)*5;});rivals.forEach((p,i)=>{p.x=(k.x+mates[i].x)/2;p.z=mates[i].z/2;});
     expect(safeKeeperTarget(s,k)).toBeUndefined();automaticDistribution(s,k);expect(s.ball.passer).toBe(null);expect(s.ball.vy).toBe(7);
     expect(s.keeperPossession).toBe(null);
   });
@@ -210,11 +210,12 @@ describe('tácticas compartidas',()=>{
     const first=s.tactics[0].presser;s.players[1].x=-3.9;updateTactics(s);
     expect(s.tactics[0].presser).toBe(first);expect(Object.values(s.tactics[0].roles).filter(r=>r==='press')).toHaveLength(1);
   });
-  it('no sigue al rival invisible ni usa su posición para escoger una línea',()=>{
-    const g=setup(0),s=g.state,r=s.players[5];s.ball.owner=r.id;s.ball.x=r.x=0;s.ball.z=r.z=0;updateTactics(s);r.cloak=3;
+  it('el rival fantasmal sigue visible para la táctica y las líneas de pase',()=>{
+    const g=setup(0),s=g.state,r=s.players[5];s.ball.owner=r.id;s.ball.x=r.x=0;s.ball.z=r.z=0;r.ghost=1.5;
     const a=structuredClone(s),b=structuredClone(s);a.players[5].x=a.ball.x=-20;b.players[5].x=b.ball.x=20;
-    updateTactics(a);updateTactics(b);expect(a.tactics[0]).toEqual(b.tactics[0]);
-    a.players[0].aiTimer=b.players[0].aiTimer=0;expect(botInput(a,a.players[0],.01)).toEqual(botInput(b,b.players[0],.01));
+    updateTactics(a);updateTactics(b);
+    expect(a.tactics[0].focus.x).toBe(-20);expect(b.tactics[0].focus.x).toBe(20);
+    expect(a.tactics[0].targets).not.toEqual(b.tactics[0].targets);
   });
   it('asigna como máximo un recolector y conserva al defensor',()=>{
     const g=setup(0),s=g.state;s.ball.owner='0-0';s.ball.x=0;s.ball.z=0;updateTactics(s);

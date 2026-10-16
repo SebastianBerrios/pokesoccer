@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Game } from '../../../packages/game/src/engine.ts';
+import { REGULATION_SECONDS, OVERTIME_SECONDS } from '../../../packages/game/src/tuning.ts';
 import { makePatch, wireState } from '../../../packages/game/src/protocol.ts';
 import type { ClientMessage, MatchState, Team } from '../../../packages/game/src/types.ts';
 
@@ -69,7 +70,7 @@ export function createGameServer(options:ServerOptions={}) {
         if(message.type==='create') {
           if(rooms.size>=maxRooms)throw Error('Las dos canchas están ocupadas. Prueba más tarde o juega en solitario.');
           let code:string;do{code=randomBytes(4).toString('hex').slice(0,6).toUpperCase();}while(rooms.has(code));
-          const game=new Game(randomBytes(4).readUInt32LE(),options.regulation??300,options.overtime??120);
+          const game=new Game(randomBytes(4).readUInt32LE(),options.regulation??REGULATION_SECONDS,options.overtime??OVERTIME_SECONDS);
           const room:Room={code,game,seats:new Map(),previous:null,lastActive:Date.now()};
           const seat:Seat={id:randomBytes(8).toString('hex'),token:randomBytes(24).toString('hex'),socket:null,expires:0};
           if(typeof message.name!=='string')throw Error('Apodo inválido.');
@@ -97,6 +98,8 @@ export function createGameServer(options:ServerOptions={}) {
           case 'choose':game.choose(id,message.slot,message.species);break;
           case 'team':game.changeTeam(id,message.team);break;
           case 'configure':game.configure(id,message.settings);break;
+          case 'configureTeam':game.configureTeam(id,message.team,message.formation,message.style);break;
+          case 'lineup':game.setLineup(id,message.team,message.lineup);break;
           case 'ready':game.ready(id,message.ready===true);break;
           case 'start':game.start(id);break;
           case 'rematch':game.rematch(id);break;

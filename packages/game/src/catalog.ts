@@ -52,7 +52,7 @@ export const ROSTER: Pokemon[] = [
   { id: 'greninja', name: 'Greninja', type: 'Agua · Siniestro', color: '#578eac', accent: '#ee9aaa', role: 'Veloz', stats: [5,1,3,3],
     abilities: [a('Burbuja','Un proyectil que ralentiza.','projectile',water,{range:10,power:2,slow:.3}),
       a('Shuriken de agua','Tres proyectiles en abanico.','projectile',water,{range:14,count:3,slow:.25,power:4}),
-      a('Manto nocturno','Oculta brevemente al equipo. La pelota sigue visible.','cloak',ghost,{duration:4,range:99})] }
+      a('Manto nocturno','El equipo evade entradas durante 1,5 s. Los poderes e intercepciones siguen funcionando.','ghost',ghost,{duration:1.5,range:0})] }
 ];
 export const POKEMON = Object.fromEntries(ROSTER.map(p => [p.id,p])) as Record<Species,Pokemon>;
 export const DEFAULT_TEAMS: [Species[],Species[]] = [

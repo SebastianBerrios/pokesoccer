@@ -16,3 +16,93 @@ body[data-view="match"] .topbar{height:65px}.match{position:relative;padding:0 3
 
 .match-settings{display:grid;grid-template-columns:1fr 200px 180px;align-items:center;gap:24px;border:1px solid var(--line);border-left:3px solid var(--lime);padding:20px 24px;margin-bottom:24px;background:#19372b;border-radius:6px}.match-settings>div{display:flex;flex-direction:column;gap:7px}.match-settings small,.keeper-target small{font-size:9px;letter-spacing:1.5px;color:var(--lime)}.match-settings strong{font-size:20px}.match-settings span{font-size:11px;color:var(--muted)}.match-settings label{margin:0}.match-settings select:disabled{opacity:.7}.control-presets{display:flex;gap:18px;margin-bottom:12px}.control-presets button{color:var(--lime);font-size:11px}.keeper-icon{font-size:52px;width:68px;text-align:center;color:#d9b8ef}.player-hud>div>span,.keeper-target>span{display:block;font-size:10px;color:var(--muted);margin-top:6px}.keeper-target{display:flex;flex-direction:column;justify-content:center;padding:12px 24px;border-left:1px solid var(--line);gap:5px}.keeper-target strong{font-size:22px}.keeper-countdown{text-align:center;min-width:90px}.keeper-countdown strong{display:block;font-size:36px;line-height:1;color:var(--lime);font-variant-numeric:tabular-nums}.keeper-countdown span{display:block;font-size:8px;letter-spacing:1.2px;margin-top:7px}.player-label.is-target{border:1px solid #fff3bb;background:#314329;color:#fff3bb!important}.player-label.is-you{font-size:12px;text-shadow:0 1px 3px #000;}
 @media(max-width:800px){.match-settings{grid-template-columns:1fr 1fr;gap:16px;padding:18px}.match-settings>div{grid-column:1/-1}.keeper-target{padding:10px}.keeper-target strong{font-size:17px}}
+
+/* Match broadcast: the pitch is the surface, the interface stays at its edges. */
+body[data-view="match"] { overflow:hidden; }
+body[data-view="match"] .topbar { display:none; }
+.match { position:fixed;inset:0;padding:0;isolation:isolate; }
+.match-stage-slot { position:absolute;inset:0;height:100dvh;min-height:0;max-height:none;border:0;border-radius:0; }
+.match-toolbar { position:absolute;z-index:4;inset:16px 20px auto;height:34px;pointer-events:none; }
+.match-toolbar button { pointer-events:auto;background:#0b2825e8;border:1px solid #486c5966;border-radius:4px;padding:9px 12px!important;color:#f0edda!important; }
+.match-toolbar>div { gap:6px; }
+.match-toolbar #connection-label { position:absolute;top:46px;left:0;font-size:8px;opacity:.8; }
+.match-board { position:absolute;z-index:3;top:14px;left:50%;transform:translateX(-50%);height:66px;gap:20px;padding:7px 21px;background:#0b2825ed;border:1px solid #72927555;border-bottom:2px solid var(--lime);border-radius:4px;box-shadow:0 8px 25px #071c1926; }
+.score-team { font-size:16px;gap:7px; }
+.score-center>div { gap:17px; }
+.score-center b { font-size:31px; }
+.score-center #clock { font-size:22px;padding:3px 11px;letter-spacing:1px;background:#203f34; }
+.score-center small { font-size:7px;letter-spacing:1.4px; }
+.match .hud { position:absolute;z-index:4;left:20px;right:20px;bottom:31px;margin:0;height:80px;min-height:0;gap:12px;pointer-events:none; }
+.match .player-hud { min-width:210px;padding:0 16px 0 0;background:#0c2926ed;border:1px solid #94ad7955;border-left:3px solid var(--lime);border-radius:5px; }
+.match .player-hud img { width:78px;height:78px; }
+.match .player-hud strong { font-size:21px; }
+.match .player-hud small { color:#c6d5a9; }
+.match .powers-hud { max-width:740px; }
+.match .power-card { background:#0c2926ed;border-color:#72927555;padding:12px; }
+.match .power-card small { color:#b2c69b;font-size:8px; }
+.match .power-card strong { font-size:14px; }
+.match .power-track { height:4px;background:#38574a; }
+.match .power-state { font-size:9px; }
+.match .item-hud { background:#0c2926ed;min-width:100px; }
+.match .control-hints { position:absolute;z-index:4;bottom:11px;left:0;right:0;font-size:9px;color:#ccd9b6;text-shadow:0 1px 4px #041b15;pointer-events:none; }
+.match .control-hints b { color:#f6efcc; }
+.match .control-hints span { padding:0 8px; }
+.match .phase-overlay { z-index:5;top:42%;padding:25px 43px; }
+.match .player-label { font-size:10px;padding:2px 4px;background:#102b27b0;border:0;letter-spacing:.1px;text-shadow:0 1px 2px #000; }
+.match .player-label.is-you { font-size:11px;border-bottom:2px solid #ffed9f;background:#293f2edc; }
+.match .player-label.is-ghost { color:#e3d8ff!important;border-bottom:1px dashed #d7e3ff; }
+.stage .minimap { position:absolute;right:20px;bottom:142px;width:216px;height:142px;border:1px solid #adc49855;border-radius:5px;box-shadow:0 4px 18px #051e1a33;pointer-events:none; }
+.ball-marker { position:absolute;left:0;top:0;width:9px;height:9px;border-radius:50%;background:#fff6d8;border:2px solid #173d35;box-shadow:0 0 0 1px #ffefcdaa; }
+.offscreen-player { position:absolute;transform:translate(-50%,-50%);font-size:11px;font-weight:bold;color:#fff2ad;background:#203e2dea;border:1px solid #f0e4a3;padding:6px 9px;border-radius:5px; }
+.tactical-summary { position:absolute;left:22px;bottom:123px;max-width:65%;z-index:4;background:#0b2825dc;border-left:2px solid var(--lime);padding:6px 10px;color:#e1e8bd;font-size:10px;letter-spacing:.3px;pointer-events:none; }
+.ability-notice { position:absolute;z-index:4;top:96px;left:50%;transform:translateX(-50%);padding:8px 15px;border:1px solid #c5bfe5;background:#263e49ed;color:#eee5ff;border-radius:3px;font-size:10px;letter-spacing:1px;pointer-events:none; }
+.team-plan { border-top:1px solid #456653;padding-top:14px;margin-top:16px; }
+.plan-selects { display:grid;grid-template-columns:1fr 1fr;gap:12px; }
+.plan-selects label { margin:0;font-size:10px;letter-spacing:.5px;color:#c2d3af; }
+.plan-selects select { height:38px;margin-top:6px; }
+.plan-description { min-height:28px;margin:10px 0;font-size:11px;line-height:1.5;color:#adc4b2; }
+.formation-preview { position:relative;height:163px;margin:12px 0;background:repeating-linear-gradient(90deg,#274d3e 0%,#274d3e 12.5%,#2a5242 12.5%,#2a5242 25%);border:1px solid #7e9f7377;border-radius:4px;overflow:hidden; }
+.formation-preview:before { content:'';position:absolute;inset:8px;border:1px solid #c8dfaa55; }
+.formation-preview:after { content:'';position:absolute;left:50%;top:8px;bottom:8px;border-left:1px solid #c8dfaa33;pointer-events:none; }
+.formation-dot { position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;flex-direction:column;z-index:1;min-width:80px; }
+.formation-dot img { width:47px;height:47px;object-fit:contain;mix-blend-mode:lighten; }
+.formation-dot b { font-size:10px;font-weight:normal;padding:1px 4px;background:#15372ddd; }
+.formation-dot small { font-size:8px;color:#d0dfb5;white-space:nowrap; }
+.plan-state { font-size:10px;line-height:1.5;color:var(--lime);min-height:15px;margin:9px 0; }
+.lineup-editor { margin-top:12px;border-top:1px solid #3d5b49;padding-top:10px; }
+.lineup-editor summary { font-size:11px;color:#d6dfb9;cursor:pointer; }
+.lineup-grid { display:grid;grid-template-columns:1fr 1fr;gap:8px 12px; }
+.lineup-grid label { font-size:10px;margin:10px 0 0; }
+.lineup-grid select { height:35px;margin-top:4px;font-size:11px; }
+#tactics-dialog .formation-preview { height:220px; }
+#tactics-dialog .formation-dot img { width:64px;height:64px; }
+#tactics-dialog .formation-dot b { font-size:12px; }
+#tactics-dialog .formation-dot small { font-size:9px; }
+#tactics-dialog .plan-state { padding:11px;background:#294330;border-radius:3px; }
+@media(max-width:1100px) {
+  .match-toolbar { inset:12px 12px auto; }
+  .match-toolbar button { font-size:9px!important;padding:7px 8px!important; }
+  .match-board { top:10px;gap:12px;padding:7px 12px; }
+  .match-toolbar>div { max-width:270px;flex-wrap:wrap;justify-content:flex-end; }
+  .match .hud { left:12px;right:12px;gap:8px; }
+  .match .player-hud { min-width:177px;padding-right:10px; }
+  .match .player-hud img { width:60px;height:64px; }
+  .match .player-hud strong { font-size:17px; }
+  .match .power-card { padding:8px;gap:7px; }
+  .match .power-card strong { font-size:11px; }
+  .match .power-card small { font-size:7px; }
+  .match .item-hud { min-width:80px;width:80px; }
+  .match .control-hints { font-size:8px; }
+}
+@media(max-width:760px) {
+  .match-board { top:50px;height:56px;gap:9px; }
+  .match-toolbar #connection-label { display:none; }
+  .match .hud { height:110px;bottom:29px;gap:5px; }
+  .match .player-hud { height:48px;min-height:0;width:65%; }
+  .match .player-hud img { height:46px;width:46px; }
+  .match .powers-hud { height:56px; }
+  .match .item-hud { height:48px;width:30%; }
+  .stage .minimap { width:151px;height:99px;right:12px;bottom:158px; }
+  .tactical-summary { left:12px;bottom:146px;font-size:8px;max-width:58%; }
+  .ability-notice { top:114px;max-width:85%;font-size:8px;text-align:center; }
+}

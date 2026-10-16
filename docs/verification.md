@@ -1,5 +1,48 @@
 # Verificación del playtest
 
+## Cámara cercana y fútbol táctico — comprobación local del 16 de octubre de 2026
+
+El checkout incorpora el campo de 72 × 44, partido a ventana completa, cámara cercana con minimapa, trece modelos, ritmo integral y planes de equipo persistentes. Esta entrega es local; las publicaciones registradas en las secciones históricas corresponden a versiones anteriores.
+
+| Comprobación | Evidencia de esta entrega |
+| --- | --- |
+| TypeScript | Aprobado: `node node_modules/typescript/bin/tsc --noEmit` |
+| Simulación | **129 aprobadas**: `node node_modules/vitest/vitest.mjs run` |
+| Build | Aprobado: `npm run build`; JS principal 106,93 kB (39,02 kB gzip), worker 45,35 kB y CSS 28,52 kB |
+| Red | Aprobada: permisos de capitán, alineación sin mutar identidades, último plan pendiente, aplicación al reanudar, reconexión y revancha; conserva las regresiones de ocho humanos y saque |
+| Carga | 16 clientes, dos salas, 31,891 s; máximo de simulación 2,97 ms, RTT máximo 225 ms, 15,6 KiB/s JSON por cliente; RTT simulado de 100/150/200 ms |
+| Navegador | **10 aprobados** en 1,5 min, salida 0; `node node_modules/@playwright/test/cli.js test --config .artifacts/playwright-strategy.config.ts --workers=1`; registro en `.artifacts/arcade-browser-final.log` |
+| Publicador | 9 pruebas locales aprobadas; no ejecutan una publicación real |
+
+Las regresiones nuevas están en `tests/arcade.test.ts`. Cubren formaciones y puestos persistentes, permisos, alineación automática/manual, planes pendientes, reanudación y final de período, reconexión/revancha, dificultad según modo, pases elevados en los tres ritmos, dirección del tiro coincidente con la línea evaluada, gol en el último ciclo, poderes escalonados, protección visible y animaciones persistentes. La cámara tiene comprobaciones geométricas para 1366 × 768, 1920 × 1080 y 1024 × 768.
+
+`tests/browser/arcade.spec.ts` usa la interfaz real para editar puestos y tácticas, comprueba que la cancha ocupe la ventana y ejercita el menú con un mando simulado. También recorre la reanudación por gol sobre WebSocket; después congela un estado preparado en el servidor de pruebas para revisar protección visible, pases elevados en las esquinas, minimapa e indicador fuera de pantalla. Las capturas de esos estados son pruebas visuales, no partidas humanas.
+
+### Revisión visual
+
+El agente inspeccionó las galerías de los trece modelos de [frente](../.artifacts/arcade-models-front.png), [espalda](../.artifacts/arcade-models-back.png) y [cancha](../.artifacts/arcade-models-pitch.png). Pikachu, Charizard, Blastoise, Venusaur, Gengar, Machamp, Alakazam, Snorlax, Lapras, Dragonite, Lucario, Greninja y Ditto conservan rasgos propios a través de esas vistas. Son modelos geométricos originales y simplificados.
+
+Capturas del partido: [jugada individual a 1366 × 768](../.artifacts/arcade-match.png), [portátil](../.artifacts/arcade-laptop.png), [Manto nocturno](../.artifacts/arcade-ghost.png), [esquina y pelota elevada](../.artifacts/arcade-corner.png). A 1366 × 768 la figura de Pikachu mide aproximadamente 63 px de alto; el test exige más de 48 px y verifica ausencia de scroll. El minimapa mide 216 × 142 px.
+
+### Unidades de cambio y reversión
+
+No hay metadatos Git en este checkout. Las unidades siguientes mantienen el comportamiento junto a su validación. Los contratos de estado son compartidos: antes de retirarlos hay que retirar sus consumidores del cliente/servidor.
+
+| Unidad | Límite de cambio | Verificación |
+| --- | --- | --- |
+| Ritmo y protección visible | `tuning.ts`, geometría, modo y campos de Fighter; movimiento, balón, habilidades y colisiones | Pruebas de ritmo, pases, ghost y antistun; simulación larga y carga |
+| Planes e IA | `team-plan.ts`, planes y reanudaciones en estado/motor, `tactics.ts`, `ai.ts` | Puestos, cobertura, estilos, permisos, reconexión y fases en unitarias/red |
+| Presentación | `match-camera.ts`, `gl.ts`, `models.ts`, `scene.ts` y CSS del partido | Geometría de cámara, modelos desde tres vistas, HUD, esquinas y minimapa |
+| Interacción y transporte | Comandos nuevos en worker/servidor; lobby, tácticas y menús con mando en `main.ts`/`input.ts` | Browser, worker individual sin red y WebSockets reales |
+
+### Límites de la validación
+
+Se utilizó Node 24.21.0 y Chromium con SwiftShader por software. La muestra del build estático registró **21 FPS** y cinco llamadas de dibujo a 1440 × 1000; no demuestra 60 FPS con GPU. Los flujos usaron los servidores locales ya abiertos para evitar la espera de apagado de Playwright en Windows. La prueba de mando sustituye `navigator.getGamepads`; no se conectó un mando físico. Las métricas de carga son locales, sin pérdida real de red ni CPU de Render.
+
+Faltan partidas humanas para evaluar la sensación de ritmo y equilibrio, rendimiento con GPU física y sesiones desde Perú con amigos. El diseño y las pruebas deterministas no sustituyen esas comprobaciones.
+
+## Historial de verificaciones anteriores
+
 ## Jugabilidad estratégica — comprobación local del 14 de octubre de 2026
 
 Implementados campo de 60 × 36, ritmo configurable, dificultad compartida, roles tácticos, transferencias de posesión y saque temporal de Ditto. Los cambios de esta sección están en el checkout local; la publicación descrita más abajo corresponde a una versión anterior.

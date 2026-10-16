@@ -2,6 +2,8 @@ import { FIELD, POKEMON } from './catalog.ts';
 import { distance, unit, clamp, segmentDistance } from './math.ts';
 import { byId, event, constrainKeeperArea } from './state.ts';
 import { hit, shootBall } from './ball.ts';
+import { setAction } from './state.ts';
+import { PACE_PROFILES, BOT_PROFILES, botDifficulty } from './tuning.ts';
 import type { Ability, Effect, Fighter, MatchState } from './types.ts';
 function effect(s:MatchState,p:Fighter,a:Ability,kind:Effect['kind'],x=p.x,z=p.z):Effect {
   const e:Effect={id:s.nextId++,owner:p.id,team:p.team,kind,color:a.color,x,z,vx:0,vz:0,radius:a.radius,
@@ -19,10 +21,13 @@ export function castAbility(s:MatchState,p:Fighter,slot:number):boolean {
   const a=POKEMON[p.species]?.abilities[slot];
   if(!a||p.stun>0||p.cast>0||p.actionCd>0||!valid(s,p,a))return false;
   if(slot===0&&p.simpleCd>0||slot===1&&p.normal<100||slot===2&&p.special<100)return false;
-  if(slot===0)p.simpleCd=6;
+  if(!p.controller&&slot>0&&s.tactics[p.team].powerReadyAt>s.time)return false;
+  if(slot===0)p.simpleCd=PACE_PROFILES[s.settings.pace].simpleCooldown;
   if(slot===1)p.normal=0;
   if(slot===2)p.special=0;
-  p.cloak=0;p.charge=0;p.actionCd=.2;
+  p.charge=0;p.actionCd=.2;
+  if(!p.controller&&slot>0)s.tactics[p.team].powerReadyAt=s.time+BOT_PROFILES[botDifficulty(s,p.team)].powerGap;
+  setAction(s,p,'cast',slot===2?.8:.45);
   if(slot===2) {
     p.cast=.8;p.castSlot=slot;p.castX=p.facingX;p.castZ=p.facingZ;
     effect(s,p,{...a,duration:.8},'warning',p.x+p.facingX*a.range,p.z+p.facingZ*a.range);
@@ -40,9 +45,9 @@ export function executeAbility(s:MatchState,p:Fighter,a:Ability) {
   if(p.keeper)return;
   const previous={x:p.x,z:p.z};
   p.anim='cast';
-  const dx=p.facingX,dz=p.facingZ;
+  const dx=p.facingX,dz=p.facingZ,impulse=PACE_PROFILES[s.settings.pace].impulse;
   if(a.kind==='dash') {
-    p.vx=dx*a.range*6;p.vz=dz*a.range*6;p.boost=1.2;
+    p.vx=dx*a.range*6*impulse;p.vz=dz*a.range*6*impulse;p.boost=1.2;
     for(const q of s.players)if(q.team!==p.team&&!q.keeper&&distance(q,p)<3)
       hit(s,q,dx,dz,a.power??6,.35);
   } else if(a.kind==='blink') {
@@ -59,8 +64,8 @@ export function executeAbility(s:MatchState,p:Fighter,a:Ability) {
     const count=a.count??1;
     for(let n=0;n<count;n++) {
       const angle=Math.atan2(dz,dx)+(n-(count-1)/2)*.24;
-      const e=effect(s,p,{...a,duration:a.range/16},'projectile',p.x+dx,p.z+dz);
-      e.vx=Math.cos(angle)*16;e.vz=Math.sin(angle)*16;
+      const e=effect(s,p,{...a,duration:a.range/(16*impulse)},'projectile',p.x+dx,p.z+dz);
+      e.vx=Math.cos(angle)*16*impulse;e.vz=Math.sin(angle)*16*impulse;
       e.radius=a.radius===3?.6:a.radius;
     }
   } else if(a.kind==='zone') {
@@ -70,9 +75,9 @@ export function executeAbility(s:MatchState,p:Fighter,a:Ability) {
     e.reflect=p.species==='alakazam';
   } else if(a.kind==='shield') p.shield=a.duration;
   else if(a.kind==='buff') p.buff=a.duration;
-  else if(a.kind==='cloak') { for(const q of s.players)if(q.team===p.team&&!q.keeper)q.cloak=a.duration; }
-  else if(a.kind==='pull') {const v=unit(p.x-s.ball.x,p.z-s.ball.z);s.ball.vx=v.x*16;s.ball.vz=v.z*16;s.ball.vy=0;}
-  else if(a.kind==='redirect') {s.ball.vx=dx*24;s.ball.vz=dz*24;s.ball.vy=1;s.ball.lastTouch=p.id;s.ball.lastTeam=p.team;s.ball.pickupLock=.1;}
+  else if(a.kind==='ghost') { for(const q of s.players)if(q.team===p.team&&!q.keeper)q.ghost=a.duration; }
+  else if(a.kind==='pull') {const v=unit(p.x-s.ball.x,p.z-s.ball.z);s.ball.vx=v.x*16*PACE_PROFILES[s.settings.pace].ball;s.ball.vz=v.z*16*PACE_PROFILES[s.settings.pace].ball;s.ball.vy=0;}
+  else if(a.kind==='redirect') {s.ball.vx=dx*24*PACE_PROFILES[s.settings.pace].ball;s.ball.vz=dz*24*PACE_PROFILES[s.settings.pace].ball;s.ball.vy=1;s.ball.lastTouch=p.id;s.ball.lastTeam=p.team;s.ball.pickupLock=.1;}
   else if(a.kind==='shot') shootBall(s,p,1,a.power??1.3,a.curve??0,a.trail??false);
   constrainKeeperArea(s,p,previous);
 }
@@ -82,9 +87,9 @@ export function useItem(s:MatchState,p:Fighter):boolean {
   if(kind==='berry')p.boost=3;
   else if(kind==='shield')p.shield=4;
   else {
-    const a:Ability={name:'Bomba',description:'',kind:'projectile',color:'#ffb56b',range:10,radius:2.8,duration:.6,power:9,stun:.6};
+    const a:Ability={name:'Bomba',description:'',kind:'projectile',color:'#ffb56b',range:10,radius:2.8,duration:.6/PACE_PROFILES[s.settings.pace].impulse,power:9,stun:.6};
     const e=effect(s,p,a,'projectile',p.x+p.facingX,p.z+p.facingZ);
-    e.vx=p.facingX*15;e.vz=p.facingZ*15;
+    e.vx=p.facingX*15*PACE_PROFILES[s.settings.pace].impulse;e.vz=p.facingZ*15*PACE_PROFILES[s.settings.pace].impulse;
   }
   return true;
 }

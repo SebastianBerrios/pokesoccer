@@ -1,7 +1,8 @@
 import { FIELD } from './catalog.ts';
 import { clamp, distance, segmentDistance, unit } from './math.ts';
-import { attackDirection, byId, event, random, resetPositions, endKeeperPossession } from './state.ts';
+import { attackDirection, byId, event, random, endKeeperPossession } from './state.ts';
 import { catchBall, gain, hit } from './ball.ts';
+import { PACE_PROFILES } from './tuning.ts';
 import type { Fighter, MatchState, Team } from './types.ts';
 
 export function updateKeepers(s:MatchState,dt:number) {
@@ -25,8 +26,9 @@ export function resolvePlayers(s:MatchState,dt:number) {
   }
   for(let i=0;i<s.players.length;i++)for(let j=i+1;j<s.players.length;j++) {
     const a=s.players[i],b=s.players[j],d=distance(a,b);
-    if(d<1.2&&d>.001) {
-      const v=unit(a.x-b.x,a.z-b.z),push=(1.2-d)*.5;
+    if(a.team!==b.team&&(a.ghost>0||b.ghost>0)&&!a.keeper&&!b.keeper)continue;
+    if(d<FIELD.playerRadius*2&&d>.001) {
+      const v=unit(a.x-b.x,a.z-b.z),push=(FIELD.playerRadius*2-d)*.5;
       if(!a.keeper){a.x+=v.x*push;a.z+=v.z*push;}
       if(!b.keeper){b.x-=v.x*push;b.z-=v.z*push;}
     }
@@ -40,7 +42,7 @@ export function scoreGoal(s:MatchState,side:number) {
   event(s,'goal','¡GOOOL!',scorer);
   if(s.half===3) {endKeeperPossession(s);s.phase='finished';s.winner=scoring;return;}
   s.phase='goal';s.phaseTime=3;
-  resetPositions(s,scoring===0?1:0);
+  endKeeperPossession(s);s.restartTeam=scoring===0?1:0;
 }
 export function updateBall(s:MatchState,dt:number) {
   const b=s.ball;
@@ -86,9 +88,9 @@ export function updateBall(s:MatchState,dt:number) {
 }
 export function updatePickups(s:MatchState,dt:number) {
   s.orbTimer-=dt;s.itemTimer-=dt;
-  if(s.orbTimer<=0) {s.orbTimer=30;if(!s.pickups.some(o=>o.kind==='orb'))s.pickups.push({id:s.nextId++,kind:'orb',x:0,z:0,life:9999});}
+  if(s.orbTimer<=0) {s.orbTimer=PACE_PROFILES[s.settings.pace].orbInterval;if(!s.pickups.some(o=>o.kind==='orb'))s.pickups.push({id:s.nextId++,kind:'orb',x:0,z:0,life:9999});}
   if(s.itemTimer<=0) {
-    s.itemTimer=20;
+    s.itemTimer=PACE_PROFILES[s.settings.pace].itemInterval;
     for(const z of [-FIELD.halfDepth*.72,FIELD.halfDepth*.72])if(!s.pickups.some(o=>o.kind!=='orb'&&Math.abs(o.z-z)<1)) {
       const kind=(['berry','shield','bomb'] as const)[Math.floor(random(s)*3)];
       s.pickups.push({id:s.nextId++,kind,x:0,z,life:20});

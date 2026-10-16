@@ -116,7 +116,8 @@ describe('partido y pelota',()=>{
   });
   it('permite esquivar con la pelota',()=>{
     const game=playing(),p=controlled(game.state,'a')!;game.state.ball.owner=p.id;p.stamina=100;
-    game.input('a',{...emptyInput(p.epoch,1),dodge:true});game.step();
+    game.input('a',emptyInput(p.epoch,1));game.step();
+    game.input('a',{...emptyInput(p.epoch,2),dodge:true});game.step();
     expect(game.state.ball.owner).toBe(p.id);expect(p.stamina).toBeLessThan(100);
   });
   it('revancha vuelve a selección, con marcador y cargas nuevos',()=>{
@@ -134,7 +135,7 @@ describe('poderes y límites',()=>{
       if(ability.kind==='shot')game.state.ball.owner=p.id;
       else {game.state.ball.owner=null;game.state.ball.x=p.x+1;game.state.ball.z=p.z;}
       expect(castAbility(game.state,p,slot),species.name+' '+ability.name).toBe(true);
-      if(slot===0)expect(p.simpleCd).toBe(6);
+      if(slot===0)expect(p.simpleCd).toBe(7);
       if(slot===1)expect(p.normal).toBe(0);
       if(slot===2)expect(p.special).toBe(0);
       ticks(game,30);expect(Number.isFinite(game.state.ball.x)).toBe(true);

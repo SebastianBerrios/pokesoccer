@@ -1,11 +1,13 @@
 import './style.css';
 import { Scene, TEAM_COLORS } from './scene.ts';
 import { GLRenderer, camera } from './gl.ts';
+import { PACE_PROFILES, REGULATION_SECONDS } from '../../../packages/game/src/tuning.ts';
+import { FORMATIONS, STYLE_LABELS, STYLE_DESCRIPTIONS, positionFor } from '../../../packages/game/src/team-plan.ts';
 import { drawPokemon } from './models.ts';
 import { Controls, type Binding } from './input.ts';
 import { LocalTransport, OnlineTransport } from './transport.ts';
 import { Game, POKEMON, ROSTER, ITEM_LABELS, controlled, moveFighter } from '../../../packages/game/src/index.ts';
-import type { GameTransport, MatchState, Species, Team, InputFrame, Pace, Difficulty } from '../../../packages/game/src/types.ts';
+import type { GameTransport, MatchState, Species, Team, InputFrame, Pace, Difficulty, Formation, PlayStyle, Lineup } from '../../../packages/game/src/types.ts';
 
 const app=document.querySelector<HTMLDivElement>('#app')!;
 const esc=(value:unknown)=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
@@ -17,7 +19,7 @@ app.innerHTML=`
   </header>
   <main>
     <section id="home" class="home">
-      <div class="hero-copy"><p class="eyebrow"><span></span> FÚTBOL. PODERES. CAOS.</p>
+      <div class="hero-copy"><p class="eyebrow"><span></span> FÚTBOL. PODERES. EQUIPO.</p>
         <h1>La cancha<br>es de <em>todos.</em></h1>
         <p class="hero-description">Arma tu equipo, carga tus poderes y cambia el partido.<br>Cuatro en cancha. Atajadas automáticas. Tú eliges el saque.</p>
         <div class="hero-actions"><button id="solo-button" class="button primary">Jugar ahora <span>↗</span></button><button id="online-button" class="button secondary">Invitar amigos <span>＋</span></button></div>
@@ -26,15 +28,15 @@ app.innerHTML=`
       </div>
       <div id="hero-stage-slot" class="hero-stage-slot"><div class="arena-caption"><span class="live-dot"></span> ESTADIO VERDE <span>01 / NOCHE DE PARTIDO</span></div><div class="stage-decoration">NO HAY BANCA.<br>HAY EQUIPO.</div></div>
     </section>
-    <section id="roster-section" class="roster-section"><div class="section-heading"><div><p class="eyebrow">ELIGE TU ESTILO</p><h2>Tu tipo de juego.</h2></div><p>Velocidad, fuerza o un poco de caos.<br>Todos tienen algo que aportar.</p></div><div id="roster-strip" class="roster-strip"></div></section>
+    <section id="roster-section" class="roster-section"><div class="section-heading"><div><p class="eyebrow">ELIGE TU ESTILO</p><h2>Tu tipo de juego.</h2></div><p>Velocidad, fuerza y una buena estrategia.<br>Todos tienen algo que aportar.</p></div><div id="roster-strip" class="roster-strip"></div></section>
     <section id="lobby" class="lobby" hidden></section>
     <section id="match" class="match" hidden>
-      <div class="match-toolbar"><button id="leave-button" class="text-button">← Salir de la cancha</button><span id="connection-label"></span><div><button id="quality-button" class="text-button">Calidad alta</button><button id="pause-button" class="text-button">Pausar [Esc]</button></div></div>
-      <div class="match-board"><div class="score-team coral">SOL <span>◆</span></div><div class="score-center"><div><b id="score-a">0</b><span id="clock">05:00</span><b id="score-b">0</b></div><small id="period">PRIMER TIEMPO</small></div><div class="score-team cyan"><span>◇</span> LUNA</div></div>
+      <div class="match-toolbar"><button id="leave-button" class="text-button">← Salir de la cancha</button><span id="connection-label"></span><div><button id="tactics-button" class="text-button">Táctica [T]</button><button id="match-sound" class="text-button" aria-label="Activar sonido del partido">Sonido ♪</button><button id="quality-button" class="text-button">Calidad alta</button><button id="pause-button" class="text-button">Pausar [Esc]</button></div></div>
+      <div class="match-board"><div class="score-team coral">SOL <span>◆</span></div><div class="score-center"><div><b id="score-a">0</b><span id="clock">03:00</span><b id="score-b">0</b></div><small id="period">PRIMER TIEMPO</small></div><div class="score-team cyan"><span>◇</span> LUNA</div></div>
       <div id="match-stage-slot" class="match-stage-slot"></div>
       <div id="phase-overlay" class="phase-overlay" hidden></div>
       <div class="hud"><div id="player-hud" class="player-hud"></div><div id="powers-hud" class="powers-hud"></div><div id="item-hud" class="item-hud"></div></div>
-      <div id="control-hints" class="control-hints"></div>
+      <div id="control-hints" class="control-hints"></div><div id="tactical-summary" class="tactical-summary"></div><div id="ability-notice" class="ability-notice" role="status" hidden></div>
     </section>
     <section id="results" class="results" hidden></section>
   </main>
@@ -66,13 +68,13 @@ function chirp(freq=440,duration=.1) {
   osc.connect(gain);gain.connect(audio.destination);osc.start();osc.stop(audio.currentTime+duration);
 }
 function showDialog(html:string) {el('dialog-body').innerHTML=html;el<HTMLDialogElement>('dialog').showModal();controls.keys.clear();controls.enabled=false;}
-function closeDialog(){el<HTMLDialogElement>('dialog').close();controls.enabled=view==='match'&&!paused;}
+function closeDialog(){el<HTMLDialogElement>('dialog').close();controls.releaseActions();controls.enabled=view==='match'&&!paused;}
 el('dialog-close').onclick=closeDialog;
-el<HTMLDialogElement>('dialog').addEventListener('close',()=>controls.enabled=view==='match'&&!paused);
+el<HTMLDialogElement>('dialog').addEventListener('close',()=>{controls.releaseActions();controls.enabled=view==='match'&&!paused;});
 el<HTMLDialogElement>('dialog').addEventListener('click',e=>{if(e.target===el('dialog'))closeDialog();});
 function setView(next:string) {
   if(next===view)return;
-  view=next;document.body.dataset.view=next;
+  view=next;document.body.dataset.view=next;window.scrollTo(0,0);scene.camera.reset();
   el('home').hidden=next!=='home';el('roster-section').hidden=next!=='home';el('footer').hidden=next!=='home';
   el('lobby').hidden=next!=='lobby';el('match').hidden=next!=='match';el('results').hidden=next!=='results';
   scene.hero=next!=='match';scene.labels.hidden=next!=='match';
@@ -88,12 +90,13 @@ function connect(next:GameTransport) {
     state=incoming;scene.myId=next.sessionId;scene.myTeam=incoming.humans.find(h=>h.id===next.sessionId)?.team??0;
     pendingInputs=pendingInputs.filter(i=>i.seq>ack);
     scene.setState(incoming);
+    if(el('tactics-dialog'))refreshTacticStatus();
     if(el<HTMLDialogElement>('dialog').open&&['online-form','connecting'].includes(el('dialog-body').firstElementChild?.id??''))closeDialog();
     if(incoming.phase==='lobby'){setView('lobby');renderLobby();}
-    else if(incoming.phase==='finished'){setView('results');renderResults();}
+    else if(incoming.phase==='finished'){if(el('tactics-dialog'))closeDialog();setView('results');renderResults();}
     else {setView('match');updateHUD();}
     const latest=incoming.events.filter(e=>e.id>lastEvent);
-    for(const e of latest){if(e.kind==='goal'){chirp(700,.4);setTimeout(()=>chirp(1000,.35),150);}else if(e.kind==='orb')chirp(880,.2);}
+    for(const e of latest){if(e.kind==='goal'){chirp(700,.4);setTimeout(()=>chirp(1000,.35),150);}else if(e.kind==='orb')chirp(880,.2);else if(e.kind==='cast')chirp(360,.18);else if(e.kind==='shot')chirp(210,.08);else if(e.kind==='shield')chirp(110,.12);}
     lastEvent=incoming.events.at(-1)?.id??lastEvent;
   };
 }
@@ -124,38 +127,105 @@ function onlineDialog() {
     el('reconnect').onclick=()=>connect(new OnlineTransport({type:'reconnect',code,token}));
   }catch{}
 }
+function canOrganize(team:Team):boolean {
+  if(!state||!transport)return false;
+  const me=state.humans.find(h=>h.id===transport!.sessionId&&h.connected);
+  return !!me&&(me.team===team&&me.captain||state.host===me.id&&!state.humans.some(h=>h.team===team&&h.connected));
+}
+function teamPlanHTML(team:Team,inMatch=false):string {
+  if(!state)return '';
+  const active=state.teamPlans[team],plan=state.pendingTeamPlans[team]??active,editable=canOrganize(team);
+  const positions=FORMATIONS[plan.formation],players=plan.lineup.map(slot=>state!.players.find(p=>p.team===team&&p.slot===slot)!);
+  const side=team===0?'Sol':'Luna';
+  return `<div class="team-plan" data-plan-team="${team}">
+    <div class="plan-selects"><label>Formación<select data-formation="${team}" aria-label="Formación de ${side}" ${editable?'':'disabled'}>${Object.keys(FORMATIONS).map(f=>'<option '+(f===plan.formation?'selected':'')+' value="'+f+'">'+f+'</option>').join('')}</select></label>
+    <label>Estilo<select data-style="${team}" aria-label="Estilo de ${side}" ${editable?'':'disabled'}>${Object.entries(STYLE_LABELS).map(([value,label])=>'<option '+(value===plan.style?'selected':'')+' value="'+value+'">'+label+'</option>').join('')}</select></label></div>
+    <p class="plan-description">${STYLE_DESCRIPTIONS[plan.style]}</p>
+    <div class="formation-preview" aria-label="Distribución de ${side}">${players.map((p,i)=>'<span class="formation-dot" style="left:'+(18+(positions[i].x+1)*32)+'%;top:'+(50+positions[i].z*42)+'%"><img src="'+thumbs.get(p.species)+'" alt=""><b>'+POKEMON[p.species].name+'</b><small>'+positions[i].label+'</small></span>').join('')}</div>
+    <p class="plan-state" role="status">${state.pendingTeamPlans[team]?'Pendiente: se aplica en la próxima reanudación.':inMatch?'En juego: '+active.formation+' · '+STYLE_LABELS[active.style]:state.autoLineup[team]?'Puestos sugeridos según atributos.':'Alineación manual.'}</p>
+    ${!inMatch?`<details class="lineup-editor"><summary>Ordenar puestos ${editable?'↗':'· solo capitán'}</summary><div class="lineup-grid">${players.map((p,i)=>'<label>'+positions[i].label+'<select data-position="'+i+'" data-lineup-team="'+team+'" aria-label="'+positions[i].label+' de '+side+'" '+(editable?'':'disabled')+'>'+players.map(q=>'<option value="'+q.slot+'" '+(q.id===p.id?'selected':'')+'>'+POKEMON[q.species].name+'</option>').join('')+'</select></label>').join('')}</div><button class="text-button" data-auto-lineup="${team}" ${editable?'':'disabled'}>Ordenar automáticamente ↗</button></details>`:''}
+  </div>`;
+}
+function bindTeamPlans(container:HTMLElement) {
+  container.querySelectorAll<HTMLElement>('[data-plan-team]').forEach(panel=>{
+    const team=Number(panel.dataset.planTeam) as Team;
+    panel.dataset.planKey=JSON.stringify(state!.pendingTeamPlans[team]??state!.teamPlans[team]);
+  });
+  container.querySelectorAll<HTMLSelectElement>('[data-formation],[data-style]').forEach(select=>select.onchange=()=>{
+    const team=Number(select.dataset.formation??select.dataset.style) as Team;
+    transport?.send({type:'configureTeam',team,
+      formation:container.querySelector<HTMLSelectElement>('[data-formation="'+team+'"]')!.value as Formation,
+      style:container.querySelector<HTMLSelectElement>('[data-style="'+team+'"]')!.value as PlayStyle});
+  });
+  container.querySelectorAll<HTMLSelectElement>('[data-position]').forEach(select=>select.onchange=()=>{
+    if(!state)return;
+    const team=Number(select.dataset.lineupTeam) as Team,position=Number(select.dataset.position),slot=Number(select.value);
+    const lineup=[...state.teamPlans[team].lineup] as Lineup,old=lineup[position],other=lineup.indexOf(slot);
+    lineup[position]=slot;lineup[other]=old;transport?.send({type:'lineup',team,lineup});
+  });
+  container.querySelectorAll<HTMLButtonElement>('[data-auto-lineup]').forEach(button=>button.onclick=()=>{
+    transport?.send({type:'lineup',team:Number(button.dataset.autoLineup) as Team,lineup:'auto'});
+  });
+}
+function tacticsDialog() {
+  if(!state||!transport||view!=='match')return;
+  const team=state.humans.find(h=>h.id===transport!.sessionId)?.team??0;
+  showDialog(`<div id="tactics-dialog"><p class="eyebrow">LA PRÓXIMA JUGADA EMPIEZA AQUÍ</p><h2>Tu plan de partido.</h2><p class="dialog-intro">Prepara formación y estilo. Se aplican después de un gol o al reanudar tras el descanso. ${transport instanceof OnlineTransport?'El partido online continúa mientras eliges.':'El partido continúa; puedes pausarlo con Esc antes de abrir este menú.'}</p>${[team,...([0,1] as Team[]).filter(t=>t!==team&&canOrganize(t))].map(t=>'<h3 class="tactics-team">'+(t===0?'Sol':'Luna')+'</h3>'+teamPlanHTML(t,true)).join('')}<button id="tactics-done" class="button primary wide">Volver a la jugada ↗</button></div>`);
+  bindTeamPlans(el('dialog-body'));el('tactics-done').onclick=closeDialog;
+}
+function refreshTacticStatus() {
+  if(!state)return;
+  el('dialog-body').querySelectorAll<HTMLElement>('[data-plan-team]').forEach(panel=>{
+    const team=Number(panel.dataset.planTeam) as Team,active=state!.teamPlans[team],plan=state!.pendingTeamPlans[team]??active;
+    const key=JSON.stringify(plan);
+    if(panel.dataset.planKey!==key) {
+      panel.dataset.planKey=key;
+      const template=document.createElement('template');template.innerHTML=teamPlanHTML(team,true);
+      for(const selector of ['.plan-description','.formation-preview'])panel.querySelector(selector)!.innerHTML=template.content.querySelector(selector)!.innerHTML;
+      panel.querySelector<HTMLSelectElement>('[data-formation]')!.value=plan.formation;
+      panel.querySelector<HTMLSelectElement>('[data-style]')!.value=plan.style;
+    }
+    panel.querySelector<HTMLElement>('.plan-state')!.textContent=state!.pendingTeamPlans[team]
+      ?'Cambio preparado. Se aplica en la próxima reanudación.':'En juego: '+active.formation+' · '+STYLE_LABELS[active.style];
+    panel.querySelectorAll<HTMLSelectElement>('select').forEach(select=>select.disabled=!canOrganize(team));
+  });
+}
 function renderLobby() {
   if(!state||!transport)return;
-  const key=JSON.stringify([state.humans,state.players.map(p=>p.species),state.host,transport.code,state.settings]);
+  const key=JSON.stringify([state.humans,state.players.map(p=>p.species),state.host,transport.code,state.settings,state.teamPlans,state.autoLineup]);
   if(key===lobbyKey)return;lobbyKey=key;
+  const openLineups=Array.from(el('lobby').querySelectorAll('[data-plan-team]')).filter(panel=>panel.querySelector<HTMLDetailsElement>('details')?.open).map(panel=>(panel as HTMLElement).dataset.planTeam);
   const me=state.humans.find(h=>h.id===transport!.sessionId);if(!me)return;
   const online=transport instanceof OnlineTransport;
   const allReady=state.humans.every(h=>!h.connected||h.ready);
   const teamHTML=(team:Team)=>{
     const humans=state!.humans.filter(h=>h.team===team&&h.connected);
     return `<div class="team-panel ${team===0?'sol':'luna'}"><div class="team-title"><span>${team===0?'◆ SOL':'◇ LUNA'}</span><small>${humans.length} HUMANOS · ${4-humans.length} BOTS</small></div>
-      ${state!.players.filter(p=>p.team===team&&!p.keeper).map(p=>{
+      ${state!.teamPlans[team].lineup.map(slot=>state!.players.find(p=>p.team===team&&p.slot===slot)!).map(p=>{
         const h=state!.humans.find(h=>h.id===p.controller),editable=me.team===team&&(p.controller===me.id||me.captain&&!p.controller);
         return `<button class="slot-card ${p.controller===me.id?'my-slot':''}" data-slot="${p.slot}" data-team="${team}" ${editable?'':'disabled'}>
-          <span class="slot-number">0${p.slot+1}</span><img src="${thumbs.get(p.species)}" alt=""><span class="slot-info"><strong>${POKEMON[p.species].name}</strong><small>${h?esc(h.name)+(h.id===me.id?' · TÚ':''):'BOT · '+POKEMON[p.species].role}</small></span>
+          <span class="slot-number">0${p.slot+1}</span><img src="${thumbs.get(p.species)}" alt=""><span class="slot-info"><strong>${POKEMON[p.species].name}</strong><small>${h?esc(h.name)+(h.id===me.id?' · TÚ':''):'BOT · '+positionFor(state!.teamPlans[team],p.slot).label}</small></span>
           <span class="slot-status">${h?(h.ready?'✓':'●'):'✦'}</span>${editable?'<span class="slot-edit">↗</span>':''}</button>`;
       }).join('')}
+      ${teamPlanHTML(team)}
       <div class="keeper-row"><span>◌</span><strong>Ditto</strong><span>ATAJA SOLO · TÚ SACAS</span></div>
       ${online&&me.team!==team?'<button class="text-button team-switch" data-switch="'+team+'">Pasarme a '+(team===0?'Sol':'Luna')+' →</button>':''}
     </div>`;
   };
   el('lobby').innerHTML=`<div class="lobby-header"><div><button class="text-button" id="back-home">← Volver</button><p class="eyebrow">${online?'SALA PRIVADA':'PARTIDO LOCAL'}</p><h1>Arma tu equipo.</h1><p>Elige tu Pokémon. En cancha puedes cambiar a cualquier compañero bot.</p></div>
     <div class="room-card"><small>${online?'INVITA A TU EQUIPO':'JUEGA A TU RITMO'}</small><strong>${online?transport.code:'TÚ + BOTS'}</strong>${online?'<button id="copy-link" class="text-button">Copiar enlace ↗</button>':'<span>Sin esperar al servidor</span>'}</div></div>
-    <div class="match-settings"><div><small>EL PARTIDO A TU MEDIDA</small><strong>Ritmo y dificultad</strong><span>El anfitrión elige antes de jugar. Todos los bots comparten dificultad.</span></div>
-      <label>Ritmo<select id="pace-setting" ${state.host===me.id?'':'disabled'}><option value="slow">Lento · 75 %</option><option value="balanced">Equilibrado · 90 %</option><option value="fast">Rápido · 105 %</option></select></label>
+    <div class="match-settings"><div><small>EL PARTIDO A TU MEDIDA</small><strong>Ritmo y dificultad</strong><span>El anfitrión elige antes de jugar. En individual, tus compañeros mantienen nivel normal; online, ambos equipos comparten nivel.</span></div>
+      <label>Ritmo<select id="pace-setting" ${state.host===me.id?'':'disabled'}><option value="slow">Lento · para construir</option><option value="balanced">Equilibrado · juego y poderes</option><option value="fast">Rápido · más intensidad</option></select></label>
       <label>Dificultad<select id="difficulty-setting" ${state.host===me.id?'':'disabled'}><option value="easy">Fácil</option><option value="normal">Normal</option><option value="hard">Difícil</option></select></label></div>
     <div class="teams-grid">${teamHTML(0)}<div class="versus">VS</div>${teamHTML(1)}</div>
-    <div class="lobby-bottom"><p>2 × 5 MIN <span>·</span> GOL DE ORO <span>·</span> SIN FALTAS<br><small>${me.captain?'Eres capitán: también eliges los Pokémon de los bots.':'El capitán completa los puestos de bots.'}</small></p>
+    <div class="lobby-bottom"><p>2 × 3 MIN <span>·</span> GOL DE ORO <span>·</span> SIN FALTAS<br><small>${me.captain?'Eres capitán: también eliges los Pokémon de los bots.':'El capitán completa los puestos de bots.'}</small></p>
       <div><button id="ready-button" class="button ${me.ready?'secondary':'primary'}">${me.ready?'✓ Estoy listo':'Estoy listo'} <span>✓</span></button>
       ${state.host===me.id?'<button id="start-match" class="button '+(allReady?'primary':'secondary')+'" '+(allReady?'':'disabled')+'>A la cancha <span>↗</span></button>':'<small>El anfitrión inicia el partido.</small>'}</div></div>`;
   el<HTMLSelectElement>('pace-setting').value=state.settings.pace;
   el<HTMLSelectElement>('difficulty-setting').value=state.settings.difficulty;
   const configure=()=>transport?.send({type:'configure',settings:{pace:el<HTMLSelectElement>('pace-setting').value as Pace,difficulty:el<HTMLSelectElement>('difficulty-setting').value as Difficulty}});
+  bindTeamPlans(el('lobby'));
+  for(const team of openLineups)el('lobby').querySelector<HTMLDetailsElement>('[data-plan-team="'+team+'"] details')!.open=true;
   el('pace-setting').onchange=configure;el('difficulty-setting').onchange=configure;
   el('back-home').onclick=leave;
   el('ready-button').onclick=()=>transport?.send({type:'ready',ready:!me.ready});
@@ -180,6 +250,11 @@ function updateHUD() {
   if(!state||!transport)return;
   const p=controlled(state,transport.sessionId);if(!p)return;
   const pokemon=POKEMON[p.species];
+  const activePlan=state.teamPlans[p.team],pendingPlan=state.pendingTeamPlans[p.team];
+  el('tactical-summary').textContent=activePlan.formation+' · '+STYLE_LABELS[activePlan.style]+(pendingPlan?' → '+pendingPlan.formation+' · '+STYLE_LABELS[pendingPlan.style]+' (pendiente)':'');
+  const ghostTeam=state.players.find(q=>q.ghost>0)?.team;
+  el('ability-notice').hidden=ghostTeam===undefined;
+  if(ghostTeam!==undefined)el('ability-notice').textContent='◈ MANTO NOCTURNO · '+(ghostTeam===0?'SOL':'LUNA')+' · EVADE CONTACTO';
   el('score-a').textContent=String(state.score[0]);el('score-b').textContent=String(state.score[1]);
   const seconds=Math.ceil(state.remaining);el('clock').textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
   el('period').textContent=state.half===3?'GOL DE ORO':state.half===1?'PRIMER TIEMPO':'SEGUNDO TIEMPO';
@@ -202,7 +277,7 @@ function updateHUD() {
       ['pass','shoot','lob','dodge','sprint','switch'].map((k,i)=>'<b>'+controls.label(k as Binding)+'</b> '+['PASE','TIRO / ENTRADA','PASE ALTO','ESQUIVA','SPRINT','CAMBIO'][i]).join(' <span>·</span> ');
   }
   el('stamina').style.width=p.stamina+'%';
-  const amounts=[(1-p.simpleCd/6)*100,p.normal,p.special];
+  const amounts=[Math.max(0,1-p.simpleCd/PACE_PROFILES[state.settings.pace].simpleCooldown)*100,p.normal,p.special];
   amounts.forEach((amount,i)=>{el('power-'+i).style.width=amount+'%';el('power-state-'+i).textContent=amount>=99.9?'●':i===0?Math.ceil(p.simpleCd)+'s':Math.floor(amount)+'%';});
   el('item-hud').innerHTML='<span class="power-key">'+(controls.gamepad?'LB+B':controls.label('item'))+'</span><small>OBJETO</small><strong>'+(p.item?ITEM_LABELS[p.item]:'Sin objeto')+'</strong>';
   }
@@ -225,11 +300,11 @@ function leave() {
 }
 function togglePause() {
   if(!(transport instanceof LocalTransport)||view!=='match')return;
-  paused=!paused;transport.pause(paused);controls.enabled=!paused;controls.keys.clear();updateHUD();
+  paused=!paused;transport.pause(paused);controls.releaseActions();controls.enabled=!paused;controls.keys.clear();updateHUD();
 }
 function help() {
   const labels:Record<Binding,string>={up:'Arriba',down:'Abajo',left:'Izquierda',right:'Derecha',pass:'Pase',shoot:'Tiro / entrada',lob:'Pase elevado',dodge:'Esquiva',sprint:'Sprint',switch:'Cambiar Pokémon',simple:'Poder simple',normal:'Poder normal',special:'Poder especial',item:'Usar objeto'};
-  showDialog(`<div class="help-dialog"><p class="eyebrow">EN DOS MINUTOS ESTÁS JUGANDO</p><h2>La pelota primero.<br>El caos después.</h2><p class="dialog-intro">Mantén el tiro para cargarlo y suelta para rematar. Sin pelota, el mismo botón hace una entrada. Cada recuperación de un bot aliado te entrega el control. Al pasar, tendrás prioridad sobre el receptor.</p><div class="help-columns"><div><h3>Teclado <small>Haz clic para reasignar</small></h3><div class="control-presets"><button class="text-button" id="preset-arrows">Flechas + A/S/D</button><button class="text-button" id="preset-wasd">WASD + J/K/L</button></div><div class="binding-list">${Object.entries(labels).map(([key,label])=>'<button data-bind="'+key+'"><span>'+label+'</span><kbd>'+controls.label(key as Binding)+'</kbd></button>').join('')}</div></div><div><h3>Mando</h3><p>Stick izquierdo: movimiento y dirección.<br><br>A: pase · X: tiro / entrada<br>Y: pase elevado · B: esquiva<br>RB: sprint · LT: cambio<br><br>Mantén LB y pulsa:<br>A: simple · X: normal<br>Y: especial · B: objeto</p><h3>Saque de Ditto · 8 segundos</h3><p>Ataja automáticamente. Durante el saque, apunta con las direcciones; pase raso, pase elevado o tiro para despejar. Con mando: A / Y / X, también con LB. No se mueve ni usa poderes. Puedes sacar rápido; al salir la pelota termina la protección del área.</p><h3>Tres formas de cargar</h3><p><b>Simple:</b> espera seis segundos.<br><b>Normal:</b> pasa, recupera y remata.<br><b>Especial:</b> recoge el orbe dorado.<br><br>Los poderes pertenecen al Pokémon, también cuando cambias de control.</p></div></div></div>`);
+  showDialog(`<div class="help-dialog"><p class="eyebrow">EN DOS MINUTOS ESTÁS JUGANDO</p><h2>La pelota primero.<br>El espectáculo después.</h2><p class="dialog-intro">Mantén el tiro para cargarlo y suelta para rematar. Sin pelota, el mismo botón hace una entrada. Cada recuperación de un bot aliado te entrega el control. Al pasar, tendrás prioridad sobre el receptor.</p><div class="help-columns"><div><h3>Teclado <small>Haz clic para reasignar</small></h3><div class="control-presets"><button class="text-button" id="preset-arrows">Flechas + A/S/D</button><button class="text-button" id="preset-wasd">WASD + J/K/L</button></div><div class="binding-list">${Object.entries(labels).map(([key,label])=>'<button data-bind="'+key+'"><span>'+label+'</span><kbd>'+controls.label(key as Binding)+'</kbd></button>').join('')}</div></div><div><h3>Mando</h3><p>Stick izquierdo: movimiento y dirección.<br><br>A: pase · X: tiro / entrada<br>Y: pase elevado · B: esquiva<br>RB: sprint · LT: cambio<br><br>Mantén LB y pulsa:<br>A: simple · X: normal<br>Y: especial · B: objeto<br><br>View / Select: tácticas · Start: pausa individual<br>Menús: ↑/↓ enfoca · ←/→ cambia<br>A acepta · B vuelve</p><h3>Saque de Ditto · 8 segundos</h3><p>Ataja automáticamente. Durante el saque, apunta con las direcciones; pase raso, pase elevado o tiro para despejar. Con mando: A / Y / X, también con LB. No se mueve ni usa poderes. Puedes sacar rápido; al salir la pelota termina la protección del área.</p><h3>Tres formas de cargar</h3><p><b>Simple:</b> espera entre seis y ocho segundos según el ritmo.<br><b>Normal:</b> pasa, recupera y remata.<br><b>Especial:</b> recoge el orbe dorado.<br><br>Los poderes pertenecen al Pokémon, también cuando cambias de control.</p></div></div></div>`);
   el('preset-arrows').onclick=()=>{controls.preset('arrows');hudKey='';help();};
   el('preset-wasd').onclick=()=>{controls.preset('wasd');hudKey='';help();};
   el('dialog-body').querySelectorAll<HTMLButtonElement>('[data-bind]').forEach(button=>button.onclick=()=>{
@@ -239,11 +314,13 @@ function help() {
   });
 }
 el('solo-button').onclick=startSolo;el('online-button').onclick=onlineDialog;el('help-button').onclick=help;
+el('tactics-button').onclick=tacticsDialog;
+el('match-sound').onclick=()=>el('sound-button').click();
 el('leave-button').onclick=leave;el('pause-button').onclick=togglePause;
 el('quality-button').onclick=()=>{quality=quality==='high'?'low':'high';scene.renderer.quality=quality as 'high'|'low';el('quality-button').textContent='Calidad '+(quality==='high'?'alta':'baja');};
-el('sound-button').onclick=()=>{sound=!sound;el('sound-button').classList.toggle('active',sound);el('sound-button').setAttribute('aria-label',sound?'Desactivar sonido':'Activar sonido');chirp(600,.12);};
+el('sound-button').onclick=()=>{sound=!sound;el('sound-button').classList.toggle('active',sound);el('sound-button').setAttribute('aria-label',sound?'Desactivar sonido':'Activar sonido');el('match-sound').textContent=sound?'Sonido ♪':'Sonido apagado';el('match-sound').setAttribute('aria-label',sound?'Desactivar sonido del partido':'Activar sonido del partido');chirp(600,.12);};
 document.querySelector('.brand')!.addEventListener('click',e=>{e.preventDefault();leave();});
-window.addEventListener('keydown',e=>{if(e.code==='Escape'&&!el<HTMLDialogElement>('dialog').open){e.preventDefault();togglePause();}});
+window.addEventListener('keydown',e=>{if(e.code==='KeyT'&&view==='match'&&!el<HTMLDialogElement>('dialog').open&&!Object.values(controls.bindings).includes('KeyT')){e.preventDefault();tacticsDialog();}if(e.code==='Escape'&&!el<HTMLDialogElement>('dialog').open){e.preventDefault();togglePause();}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&transport instanceof LocalTransport&&view==='match'&&!paused)togglePause();});
 function portraits() {
   const c=document.createElement('canvas');c.style.cssText='position:fixed;left:-9999px;width:160px;height:160px';document.body.append(c);
@@ -259,11 +336,38 @@ function portraits() {
 }
 portraits();
 let previousTime=performance.now(),demoAcc=0,fpsFrames=0,fpsAt=performance.now(),fps=60;
+let menuHeld=new Set<string>();
+function pollMenuPad() {
+  const pad=navigator.getGamepads?.().find(p=>p?.connected);
+  if(!pad){menuHeld.clear();return;}
+  const pressed=(i:number)=>!!pad.buttons[i]?.pressed,held=new Set<string>();
+  if(pressed(8))held.add('tactics');if(pressed(9))held.add('pause');
+  if(pressed(0))held.add('accept');if(pressed(1))held.add('back');
+  if(pressed(12)||pad.axes[1]<-.6)held.add('up');if(pressed(13)||pad.axes[1]>.6)held.add('down');
+  if(pressed(14)||pad.axes[0]<-.6)held.add('left');if(pressed(15)||pad.axes[0]>.6)held.add('right');
+  const previousHeld=menuHeld;
+  const edge=(key:string)=>held.has(key)&&!previousHeld.has(key);menuHeld=held;
+  if(edge('tactics')&&view==='match'){controls.gamepad=true;if(el<HTMLDialogElement>('dialog').open)closeDialog();else tacticsDialog();return;}
+  if(edge('pause')&&!el<HTMLDialogElement>('dialog').open){controls.gamepad=true;togglePause();return;}
+  if(!el<HTMLDialogElement>('dialog').open)return;
+  if(edge('back')){closeDialog();return;}
+  const items=Array.from(el('dialog').querySelectorAll<HTMLElement>('button:not(:disabled),select:not(:disabled),input:not(:disabled),summary')).filter(e=>e.getClientRects().length>0);
+  if(!items.length)return;
+  const index=Math.max(0,items.indexOf(document.activeElement as HTMLElement));
+  if(edge('up')||edge('down'))items[(index+(edge('down')?1:-1)+items.length)%items.length].focus();
+  const active=document.activeElement;
+  if(active instanceof HTMLSelectElement&&(edge('left')||edge('right'))) {
+    active.selectedIndex=(active.selectedIndex+(edge('right')?1:-1)+active.options.length)%active.options.length;
+    active.dispatchEvent(new Event('change',{bubbles:true}));
+  }
+  if(edge('accept')&&!(active instanceof HTMLSelectElement))items[index].click();
+}
 function frame(now:number) {
+  pollMenuPad();
   const dt=Math.min(.1,(now-previousTime)/1000);previousTime=now;
   if(view==='home') {
     demoAcc+=dt;while(demoAcc>=1/30){demo.step();demoAcc-=1/30;}
-    if(demo.state.phase==='finished'){demo.state.phase='playing';demo.state.remaining=300;demo.state.half=1;demo.state.score=[0,0];}
+    if(demo.state.phase==='finished'){demo.state.phase='playing';demo.state.remaining=REGULATION_SECONDS;demo.state.half=1;demo.state.score=[0,0];}
     scene.setState(demo.state);scene.previous=null;scene.myId='';scene.predicted=null;
   } else if(view==='match'&&state&&transport) {
     const p=controlled(state,transport.sessionId);
@@ -287,4 +391,4 @@ function frame(now:number) {
 requestAnimationFrame(frame);
 if(new URLSearchParams(location.search).has('sala'))onlineDialog();
 // Read-only diagnostic surface: used by browser QA, never accepted as authoritative input.
-Object.defineProperty(window,'__pokesoccer',{get:()=>({view,state:state?structuredClone(state):null,fps,drawCalls:scene.renderer.calls,session:transport?.sessionId,network:transport instanceof OnlineTransport})});
+Object.defineProperty(window,'__pokesoccer',{get:()=>({view,state:state?structuredClone(state):null,fps,drawCalls:scene.renderer.calls,camera:{...scene.camera.view},models:{...scene.metrics},session:transport?.sessionId,network:transport instanceof OnlineTransport})});

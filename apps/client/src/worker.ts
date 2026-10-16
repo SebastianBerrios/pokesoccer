@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { Game } from '../../../packages/game/src/engine.ts';
 import type { ClientMessage } from '../../../packages/game/src/types.ts';
-const game=new Game(Math.floor(Math.random()*0xffffffff));
+const game=new Game(Math.floor(Math.random()*0xffffffff),undefined,undefined,'solo');
 let paused=false,acc=0,last=performance.now(),snap=0;
 self.onmessage=(event:MessageEvent<ClientMessage|{type:'pause',value:boolean}>)=>{
   const msg=event.data;
@@ -11,6 +11,8 @@ self.onmessage=(event:MessageEvent<ClientMessage|{type:'pause',value:boolean}>)=
     else if(msg.type==='choose')game.choose('local',msg.slot,msg.species);
     else if(msg.type==='team')game.changeTeam('local',msg.team);
     else if(msg.type==='configure')game.configure('local',msg.settings);
+    else if(msg.type==='configureTeam')game.configureTeam('local',msg.team,msg.formation,msg.style);
+    else if(msg.type==='lineup')game.setLineup('local',msg.team,msg.lineup);
     else if(msg.type==='ready')game.ready('local',msg.ready);
     else if(msg.type==='start')game.start('local');
     else if(msg.type==='rematch')game.rematch('local');
