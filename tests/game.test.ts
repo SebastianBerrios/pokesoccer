@@ -174,10 +174,11 @@ describe('poderes y límites',()=>{
     for(let n=0;n<8;n++){s.ball.owner=p.id;p.actionCd=0;passBall(s,p);catchBall(s,q);}
     expect(p.normal).toBe(50);
   });
-  it('crea objetos en posiciones simétricas sin consultar el marcador',()=>{
+  it('crea dos objetos dispersos sin consultar el marcador',()=>{
     const game=playing();game.state.score=[9,0];game.state.itemTimer=0;updatePickups(game.state,.03);
     const items=game.state.pickups.filter(p=>p.kind!=='orb');
-    expect(items.map(p=>p.z)).toEqual([-FIELD.halfDepth*.72,FIELD.halfDepth*.72]);expect(items.every(p=>p.x===0)).toBe(true);
+    expect(items).toHaveLength(2);
+    expect(items[0].x).not.toBe(items[1].x);
   });
 });
 describe('simulación y protocolo',()=>{

@@ -4,7 +4,9 @@ export type Phase = 'lobby' | 'kickoff' | 'playing' | 'goal' | 'halftime' | 'ove
 export type Item = 'berry' | 'shield' | 'bomb';
 export type AbilityKind = 'dash' | 'push' | 'projectile' | 'zone' | 'shield' | 'pull' | 'blink' | 'wall' | 'redirect' | 'buff' | 'shot' | 'ghost';
 export type FighterAction = 'pass' | 'shot' | 'tackle' | 'dodge' | 'cast' | 'hit';
+export type AbilityId = `${Exclude<Species, 'ditto'>}-${'simple' | 'normal' | 'special'}` | 'item-bomb';
 export interface Ability {
+  id: AbilityId;
   name: string; description: string; kind: AbilityKind;
   color: string; range: number; radius: number; duration: number;
   power?: number; slow?: number; stun?: number; count?: number;
@@ -28,6 +30,8 @@ export interface Fighter extends Vec {
   stun: number; immunity: number; slow: number; slowTime: number;
   shield: number; boost: number; buff: number; ghost: number; noSprint: number;
   actionCd: number; dodgeTime: number; charge: number;
+  confusion: number; confusionGuard: number; confusionTurn: number;
+  actionAbility: AbilityId | null; statuses: Partial<Record<AbilityId, number>>;
   cast: number; castSlot: number; castX: number; castZ: number;
   aiTimer: number; aiX: number; aiZ: number; aiShoot: boolean; aiSprint: boolean;
   passCredit: number; anim: string;
@@ -37,16 +41,19 @@ export interface Ball extends Vec {
   y: number; vx: number; vy: number; vz: number;
   owner: string | null; lastTouch: string | null; passer: string | null;
   passSession: string | null; passTarget: string | null; shot: boolean;
+  abilityId: AbilityId | null;
   pickupLock: number; curve: number; fiery: number; lastTeam: Team | null;
 }
 export interface Effect extends Vec {
+  stage?: 'active' | 'impact';
+  abilityId?: AbilityId; directionX?: number; directionZ?: number; targetX?: number; targetZ?: number;
   id: number; owner: string; team: Team; kind: 'projectile' | 'zone' | 'wall' | 'burst' | 'warning';
   color: string; vx: number; vz: number; radius: number; life: number; maxLife: number;
   power: number; slow: number; stun: number; allySpeed: number; noSprint: boolean;
   hits: string[]; reflect: boolean; trail: boolean;
 }
 export interface Pickup extends Vec { id: number; kind: Item | 'orb'; life: number }
-export interface GameEvent { id: number; kind: string; text: string; team?: Team; actor?: string }
+export interface GameEvent { abilityId?: AbilityId; id: number; kind: string; text: string; team?: Team; actor?: string }
 export interface Human {
   id: string; name: string; team: Team; fighterId: string; ready: boolean;
   connected: boolean; captain: boolean;

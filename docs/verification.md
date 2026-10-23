@@ -1,5 +1,59 @@
 # Verificación del playtest
 
+## Personajes, poderes y experiencia de partido — 20 de octubre de 2026
+
+La entrega local incorpora modelos propios para las trece especies, señales distintas para los 36 poderes, recepción inmediata de pases dirigidos, tácticas autónomas del rival BOT, apariciones dispersas y confusión compartida entre humanos y BOT. El minimapa está centrado abajo. El audio incluye 37 efectos originales, reproducción local y preferencias persistentes. **Faltan las grabaciones de la apertura latina, el instrumental y las voces del anime:** el plan completo de audio no está terminado. Las fuentes y el bloqueo de descarga están documentados en [audio-sources.md](audio-sources.md).
+
+### Comprobaciones automáticas
+
+Node 24.21.0, Chromium con SwiftShader y dependencias del lockfile. En PowerShell se usa `npm.cmd` para evitar la política que bloquea el envoltorio `npm.ps1`; ejecuta los mismos scripts de `package.json`.
+
+| Comando | Resultado de esta entrega |
+| --- | --- |
+| `npm run typecheck` | Aprobado, TypeScript estricto sin emisión |
+| `npm test` | **143 pruebas aprobadas**, seis archivos |
+| `npm run build` | Aprobado; incluye las entradas del juego y `/gallery.html` |
+| `npm run test:network` | Aprobado; 13 conexiones, 239 ticks, paso máximo 2,87 ms |
+| `npm run test:load` | Aprobado; 16 clientes, dos salas, 31,828 s; paso máximo 9,82 ms, RTT máximo 287 ms y 18,6 KiB/s JSON por cliente |
+| `npm run test:browser` | **15 pruebas aprobadas** en 1,9 min; un worker |
+
+Después se ajustó la orientación de los portales de Alakazam tras inspeccionar las capturas. Se repitieron typecheck y build con éxito, y `npm run test:browser -- --grep "galeria completa"` aprobó su prueba en 13,8 s y regeneró las capturas de las dos calidades.
+
+Las regresiones de `tests/match-experience.test.ts` comprueban pases rasos/elevados, intercepción y cancelación, conservación de otro controlador humano y transferencia al recibir (incluido saque de Ditto); autonomía y permisos tácticos; apariciones válidas y reproducibles; confusión, reposo, duración, protección y simetría; identidad de habilidades, reflexión y estados durante pausas. `tests/network.ts` verifica rechazo de tácticas del rival, identidad y confusión en snapshots y reconexión, junto a las regresiones de revancha.
+
+Los flujos de navegador ejercitan importación local de audio, silencio, los tres volúmenes y persistencia, cambio de pista al quitar silencio tras una transición, rival consultable sin edición y minimapa sin superposición a 1366 × 768, 390 × 844 y 844 × 390. Las capturas cubren los trece modelos y los 36 poderes en ambas calidades. La decodificación PCM comprueba duración, señal y ausencia de saturación; no sustituye la escucha. Se estabilizó además el botón de revancha para que los snapshots no lo reemplacen mientras se pulsa.
+
+### Revisión visual y rendimiento
+
+Abrir `/gallery.html` con `npm run dev` muestra frente, perfil y espalda de los trece modelos y preparación, actividad e impacto de cada poder. La galería usa las habilidades del motor compartido. Los modelos son interpretaciones geométricas originales y simplificadas; las dimensiones de colisión permanecen iguales.
+
+El agente revisó las capturas de [modelos en calidad alta](../.artifacts/models-high.png), [calidad baja](../.artifacts/models-low.png), los poderes bajo `.artifacts/powers/` y los partidos de [escritorio](../.artifacts/experience-1366.png), [móvil vertical](../.artifacts/experience-390.png) y [móvil horizontal](../.artifacts/experience-844.png). Los estados preparados y recorridos automatizados no equivalen a una partida humana.
+
+La comparación usa diez jugadores a 1280 × 720, cuarenta muestras con `gl.finish()` tras calentamiento y el mismo renderizador por software. La referencia precede a las nuevas mallas. Se conservan [medición anterior](../.artifacts/performance-baseline.json) y [posterior aislada](../.artifacts/performance-after.json).
+
+| Escena | Mediana anterior | Mediana posterior | P95 posterior |
+| --- | --- | --- | --- |
+| Diez jugadores, alta | 0,9 ms | 1,4 ms | 3,7 ms |
+| Diez jugadores, baja | 0,7 ms | 1,3 ms | 4,0 ms |
+| Diez jugadores y 60 efectos, alta | 1,5 ms | 3,1 ms | 6,4 ms |
+| Diez jugadores y 60 efectos, baja | 1,1 ms | 2,2 ms | 4,8 ms |
+
+Las llamadas de dibujo pasan de 5 a 14. Calidad baja reduce partículas y teselación, conservando siluetas y límites jugables. La muestra completa del build de la ejecución final registró 18 FPS con SwiftShader; esta cifra incluye trabajo fuera de la escena aislada. Los nuevos detalles aumentan el coste: falta medir una GPU real y jugar partidas humanas antes de afirmar fluidez o equilibrio. Las métricas de carga son locales con RTT simulado de 100/150/200 ms, sin pérdida real de paquetes.
+
+### Unidades de cambio y reversión
+
+Este checkout no contiene metadatos Git. Cada unidad debe conservar código, pruebas y documentación juntos; los contratos compartidos requieren retirar coordinadamente sus consumidores.
+
+| Unidad | Límite de reversión | Validación asociada |
+| --- | --- | --- |
+| Recepción, rival y apariciones | `ai.ts`, `ball.ts`, `keepers.ts`, `physics.ts`, permisos y arranque en `engine.ts`; cambios correspondientes en `state.ts`, interfaz táctica y tests de simulación/red | Unitarias, red y carga aprobadas |
+| Identidad y confusión | Contratos en `types.ts`, IDs de `catalog.ts`, reglas de `abilities.ts`, temporizadores en `engine.ts` y movimiento en `state.ts`; retirar junto a consumidores visuales y de audio | Simulación de las 36 identidades, reflexión, confusión y reconexión aprobada |
+| Modelos y efectos | `gl.ts`, `meshes.ts`, `models.ts`, `ability-visuals.ts`, integración en `scene.ts`, galería y entrada Vite; mantener sus pruebas de navegador y medición | Galería en dos calidades, capturas y comparación de rendimiento |
+| HUD y audio local | `audio.ts`, integración y estabilidad de resultados en `main.ts`, `style.css`, archivos `public/audio`, generador y tests de audio/navegador | Preferencias, importación, silencio, deduplicación y distribución del minimapa |
+
+No se publicó una versión remota. Quedan pendientes la obtención y escucha de las grabaciones solicitadas, la auditoría auditiva de la mezcla y la comprobación con GPU, mando físico y jugadores humanos.
+
+
 ## Cámara cercana y fútbol táctico — comprobación local del 16 de octubre de 2026
 
 El checkout incorpora el campo de 72 × 44, partido a ventana completa, cámara cercana con minimapa, trece modelos, ritmo integral y planes de equipo persistentes. Esta entrega es local; las publicaciones registradas en las secciones históricas corresponden a versiones anteriores.

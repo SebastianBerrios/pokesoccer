@@ -88,8 +88,7 @@ export class Game {
     const s=this.state,h=s.humans.find(h=>h.id===id&&h.connected);
     if(team!==0&&team!==1||!h)throw Error('Equipo inválido.');
     const ownCaptain=h.team===team&&h.captain;
-    const botTeam=id===s.host&&!s.humans.some(h=>h.team===team&&h.connected);
-    if(!ownCaptain&&!botTeam)throw Error('Solo el capitán puede organizar este equipo.');
+    if(!ownCaptain)throw Error('Solo el capitán puede organizar este equipo.');
     if(s.phase==='finished')throw Error('El partido terminó.');
   }
   configureTeam(id:string,team:Team,formation:unknown,style:unknown) {
@@ -125,6 +124,12 @@ export class Game {
     if(id!==s.host)throw Error('Solo el anfitrión puede iniciar.');
     if(s.phase!=='lobby')throw Error('El partido ya comenzó.');
     if(!s.humans.some(h=>h.connected)||s.humans.some(h=>h.connected&&!h.ready))throw Error('Falta que todos estén listos.');
+    for(const team of [0,1] as Team[])if(!s.humans.some(h=>h.team===team)) {
+      const formation=(['1-2-1','2-2','1-1-2'] as const)[Math.floor(random(s)*3)];
+      const style=(['balanced','possession','counterattack'] as const)[Math.floor(random(s)*3)];
+      s.teamPlans[team]={formation,style,lineup:automaticLineup(s.players.filter(p=>p.team===team&&!p.keeper),formation)};
+      s.pendingTeamPlans[team]=null;s.autoLineup[team]=true;
+    }
     s.phase='kickoff';s.phaseTime=3;s.restartTeam=0;event(s,'start','¡A la cancha!');
     this.inputs.clear();this.previous.clear();
     for(const p of s.players)if(p.controller)this.gates.set(p.controller,{epoch:p.epoch,blocked:new Set()});
@@ -221,8 +226,11 @@ export class Game {
     updateKeeperPossession(s);
     updateTactics(s);
     for(const p of s.players) {
-      for(const key of ['simpleCd','stun','immunity','slowTime','shield','boost','buff','ghost','noSprint','actionCd','dodgeTime'] as const)p[key]=Math.max(0,p[key]-dt);
-      if(p.actionUntil<=s.time)p.action=null;
+      for(const key of ['confusion','confusionGuard','simpleCd','stun','immunity','slowTime','shield','boost','buff','ghost','noSprint','actionCd','dodgeTime'] as const)p[key]=Math.max(0,p[key]-dt);
+      for(const id of Object.keys(p.statuses) as (keyof typeof p.statuses)[]) {
+        p.statuses[id]=Math.max(0,p.statuses[id]!-dt);if(p.statuses[id]===0)delete p.statuses[id];
+      }
+      if(p.actionUntil<=s.time){p.action=null;p.actionAbility=null;}
       if(p.cast>0){p.cast=Math.max(0,p.cast-dt);if(p.cast===0)finishCast(s,p);}
       if(p.keeper&&!p.controller)continue;
       let input:InputFrame;

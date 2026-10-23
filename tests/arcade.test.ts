@@ -35,10 +35,10 @@ describe('planes y puestos persistentes',()=>{
     g.setLineup('a',0,'auto');expect(s.autoLineup[0]).toBe(true);
     expect(s.teamPlans[0].lineup).toEqual(automaticLineup(s.players.filter(p=>p.team===0&&!p.keeper),'1-2-1'));
   });
-  it('solo capitán o anfitrión de equipo bot configura; rechaza opciones y puestos inválidos',()=>{
+  it('solo el capitán configura su equipo; rechaza rival, opciones y puestos inválidos',()=>{
     const g=new Game();g.addHuman('a','Ana',0);g.addHuman('b','Bruno',0);
     expect(()=>g.configureTeam('b',0,'2-2','balanced')).toThrow(/capitán/);
-    g.configureTeam('a',1,'2-2','counterattack');
+    expect(()=>g.configureTeam('a',1,'2-2','counterattack')).toThrow();
     g.addHuman('r','Rival',1);
     expect(()=>g.configureTeam('a',1,'1-2-1','balanced')).toThrow(/capitán/);
     expect(()=>g.configureTeam('a',0,'constructor','balanced')).toThrow(/inválido/);

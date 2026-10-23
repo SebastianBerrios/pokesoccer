@@ -32,7 +32,7 @@ export function distributeKeeper(s: MatchState, p: Fighter, action: 'pass' | 'lo
   } else {
     const receiver = target ?? passTarget(s, p);
     passBall(s, p, action === 'lob', receiver);
-    endKeeperPossession(s, receiver);
+    endKeeperPossession(s);
   }
   p.aiTimer = .5;
 }

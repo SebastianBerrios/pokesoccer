@@ -1,6 +1,6 @@
 import { FIELD, POKEMON } from './catalog.ts';
 import { clamp, distance, unit } from './math.ts';
-import { attackDirection, byId, emptyInput, random } from './state.ts';
+import { attackDirection, byId, emptyInput, random, movementSpeed } from './state.ts';
 import { passTarget } from './ball.ts';
 import { laneClearance, visibleRivals } from './keepers.ts';
 import { BOT_PROFILES, botDifficulty } from './tuning.ts';
@@ -12,6 +12,19 @@ export const DECISION_INTERVALS: Record<Difficulty, readonly [number,number]> = 
 export function botInput(s:MatchState,p:Fighter,dt:number):InputFrame {
   const input=emptyInput(p.epoch,s.tick),t=s.tactics[p.team],difficulty=botDifficulty(s,p.team);
   const profile=BOT_PROFILES[difficulty],plan=s.teamPlans[p.team];
+  // A directed pass interrupts the cached tactical decision on this very tick.
+  if(!p.controller&&s.ball.passTarget===p.id&&!s.ball.owner) {
+    const target=passInterception(s,p);
+    p.aiTimer=0;p.aiX=0;p.aiZ=0;p.aiShoot=false;p.aiSprint=false;
+    if(target) {
+      const d=distance(p,target),v=unit(target.x-p.x,target.z-p.z);
+      input.moveX=d>.12?v.x*Math.min(1,d/(movementSpeed(p,true,s.settings)*dt)):0;
+      input.moveZ=d>.12?v.z*Math.min(1,d/(movementSpeed(p,true,s.settings)*dt)):0;
+      input.sprint=d>1&&p.stamina>0;
+      return input;
+    }
+    s.ball.passTarget=null;s.ball.passSession=null;s.ball.passer=null;
+  }
   p.aiTimer-=dt;
   if(p.aiTimer>0) {
     input.moveX=p.aiX;input.moveZ=p.aiZ;input.shoot=p.aiShoot;input.sprint=p.aiSprint;
@@ -86,4 +99,20 @@ export function botInput(s:MatchState,p:Fighter,dt:number):InputFrame {
   input.item=!!p.item&&(nearEnemy||p.item==='berry'&&distance(p,focus)>6)&&random(s)<profile.powerChance;
   p.aiX=input.moveX;p.aiZ=input.moveZ;p.aiShoot=input.shoot;p.aiSprint=input.sprint;
   return input;
+}
+
+// Predict the same gravity, bounce and drag as updateBall, without mutating state.
+// First reachable low point wins; high lobs are met on their descent.
+export function passInterception(s:MatchState,p:Fighter) {
+  const b={...s.ball},step=1/60,speed=movementSpeed(p,true,s.settings);
+  if(b.owner||b.passTarget!==p.id||b.lastTeam!==p.team)return null;
+  for(let time=step;time<=6;time+=step) {
+    if(b.curve){const a=Math.atan2(b.vz,b.vx)+b.curve*step*.35,v=Math.hypot(b.vx,b.vz);b.vx=Math.cos(a)*v;b.vz=Math.sin(a)*v;}
+    b.vy-=9.8*step;b.x+=b.vx*step;b.z+=b.vz*step;b.y+=b.vy*step;
+    if(Math.abs(b.x)>FIELD.halfWidth-.3||Math.abs(b.z)>FIELD.halfDepth-.3)return null;
+    if(b.y<.35){b.y=.35;b.vy=Math.abs(b.vy)>.9?-b.vy*.42:0;}
+    const drag=Math.exp(-(b.y>.4?.07:.5)*step);b.vx*=drag;b.vz*=drag;
+    if(b.y<1.1&&distance(p,b)<=speed*time+.65)return {x:b.x,z:b.z};
+  }
+  return null;
 }

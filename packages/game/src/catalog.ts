@@ -1,6 +1,6 @@
-import type { Ability, AbilityKind, Pokemon, Species } from './types.ts';
+import type { Ability, AbilityId, AbilityKind, Pokemon, Species } from './types.ts';
 function a(name: string, description: string, kind: AbilityKind, color: string, options: Partial<Ability> = {}): Ability {
-  return { name, description, kind, color, range: 8, radius: 3, duration: 3, power: kind==='zone'?0:6, ...options };
+  return { id: 'item-bomb', name, description, kind, color, range: 8, radius: 3, duration: 3, power: kind==='zone'?0:6, ...options };
 }
 const electric = '#ffd84c', fire = '#ff793f', water = '#56caff', grass = '#87e68a';
 const ghost = '#c296ff', fighting = '#edaa83', psychic = '#ff8ed9', ice = '#a4edee';
@@ -24,7 +24,7 @@ export const ROSTER: Pokemon[] = [
   { id: 'gengar', name: 'Gengar', type: 'Fantasma · Veneno', color: '#9878bb', accent: '#dc6386', role: 'Veloz', stats: [5,1,3,3],
     abilities: [a('Paso sombra','Desplazamiento corto, solo sin pelota.','blink',ghost,{range:4}),
       a('Bola sombra','Proyectil que hace soltar la pelota.','projectile',ghost,{range:14,power:7,stun:.4}),
-      a('Campo espectral','Los rivales en la zona no pueden esprintar.','zone',ghost,{range:5,radius:6,duration:6,noSprint:true,slow:.15})] },
+      a('Campo espectral','Desvía 30° el movimiento rival durante 0,8 s, una vez por lanzamiento, y ralentiza suavemente.','zone',ghost,{range:5,radius:6,duration:6,slow:.15})] },
   { id: 'machamp', name: 'Machamp', type: 'Lucha', color: '#97b2b3', accent: '#caac61', role: 'Defensor', stats: [2,5,2,3],
     abilities: [a('Puñetazo','Empuja al rival más cercano al frente.','push',fighting,{range:3,power:8}),
       a('Guardia','Resiste entradas durante unos segundos.','buff',fighting,{duration:4}),
@@ -54,6 +54,9 @@ export const ROSTER: Pokemon[] = [
       a('Shuriken de agua','Tres proyectiles en abanico.','projectile',water,{range:14,count:3,slow:.25,power:4}),
       a('Manto nocturno','El equipo evade entradas durante 1,5 s. Los poderes e intercepciones siguen funcionando.','ghost',ghost,{duration:1.5,range:0})] }
 ];
+for (const pokemon of ROSTER) pokemon.abilities.forEach((ability, slot) => {
+  ability.id = `${pokemon.id}-${(['simple', 'normal', 'special'] as const)[slot]}` as AbilityId;
+});
 export const POKEMON = Object.fromEntries(ROSTER.map(p => [p.id,p])) as Record<Species,Pokemon>;
 export const DEFAULT_TEAMS: [Species[],Species[]] = [
   ['pikachu','charizard','blastoise','venusaur'],

@@ -20,6 +20,9 @@ test('final online y revancha pasan por las pantallas reales',async({page})=>{
     await page.getByRole('button',{name:/A la cancha/}).click();
     await expect(page.locator('#results')).toBeVisible({timeout:25000});
     await expect(page.locator('.final-score')).toContainText('0');
+    const rematchButton=await page.locator('#rematch').elementHandle();
+    await page.waitForTimeout(250);
+    expect(await rematchButton!.evaluate(node=>node.isConnected)).toBe(true);
     await page.getByRole('button',{name:/Un partido más/}).click();
     await expect(page.getByRole('heading',{name:'Arma tu equipo.'})).toBeVisible();
     await expect(page.locator('#pace-setting')).toHaveValue('slow');

@@ -106,3 +106,19 @@ body[data-view="match"] .topbar { display:none; }
   .tactical-summary { left:12px;bottom:146px;font-size:8px;max-width:58%; }
   .ability-notice { top:114px;max-width:85%;font-size:8px;text-align:center; }
 }
+/* Centered radar reserves its own row above the action controls. */
+.stage .minimap { left:50%;right:auto;transform:translateX(-50%);bottom:124px; }
+.tactical-summary { bottom:124px;max-width:calc(50% - 140px); }
+.audio-settings { display:grid;gap:20px; }
+.audio-settings label { display:grid;grid-template-columns:90px 1fr 45px;gap:15px;align-items:center;margin:0; }
+.audio-settings input[type=range] { width:100%;height:30px;padding:0;accent-color:var(--lime); }
+.audio-settings output { font-variant-numeric:tabular-nums;text-align:right;color:var(--lime); }
+.audio-settings .audio-mute { display:flex;gap:12px; }
+.audio-settings input[type=checkbox] { width:18px;height:18px; }
+@media(max-width:760px) {
+  .stage .minimap { bottom:148px;left:50%;right:auto; }
+  .tactical-summary { top:118px;bottom:auto;left:12px;max-width:calc(100% - 24px); }
+}
+@media(max-height:550px) and (min-width:761px) {
+  .stage .minimap { width:151px;height:99px; }
+}

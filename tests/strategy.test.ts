@@ -121,11 +121,12 @@ describe('saque temporal de Ditto',()=>{
     expect(s.remaining).toBeLessThan(before);expect(s.keeperPossession?.targetId).toBeTruthy();
     input(g,'h0',{moveX:1});expect(a.x).toBeGreaterThan(0);
   });
-  it('permite saque rápido, transfiere al bot al soltar y termina retirada y protección',()=>{
+  it('permite saque rápido, transfiere al recibir y termina retirada al soltar',()=>{
     const g=setup(),s=g.state,r=s.players[5];r.x=-FIELD.halfWidth+3;r.z=0;
     const keeper=capture(g),hold=s.keeperPossession!;expect(hold.retreat[r.id]).toBeDefined();
     const target=s.players[1];distributeKeeper(s,keeper,'pass',target);
-    expect(s.keeperPossession).toBe(null);expect(controlled(s,'h0')!.id).toBe(target.id);
+    expect(s.keeperPossession).toBe(null);expect(controlled(s,'h0')!.id).toBe(hold.previousFighterId);
+    expect(target.controller).toBe(null);
     expect(s.ball.passTarget).toBe(target.id);expect(s.ball.owner).toBe(null);expect(r.x).toBe(-FIELD.halfWidth+3);
     // A rival can contest the very next catch after release.
     catchBall(s,r);expect(s.ball.owner).toBe(r.id);

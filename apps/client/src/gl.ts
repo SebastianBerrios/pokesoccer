@@ -1,7 +1,7 @@
 import type { CameraView } from './match-camera.ts';
 import { FIELD } from '../../../packages/game/src/geometry.ts';
 type V3=[number,number,number];
-export type Shape='box'|'sphere'|'cone'|'cylinder'|'ring';
+export type Shape='box'|'sphere'|'cone'|'cylinder'|'ring' | (string & {});
 export type M4=Float32Array;
 export function identity():M4 {return new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);}
 export function multiply(a:M4,b:M4):M4 {
@@ -41,11 +41,11 @@ export function camera(width:number,height:number,hero:boolean|'portrait'|Camera
   const proj=new Float32Array([2/spanX,0,0,0,0,2/spanY,0,0,0,0,-2/(far-near),0,0,0,-(far+near)/(far-near),1]);
   return multiply(proj,view);
 }
-function geometry(kind:Shape):Float32Array {
+function geometry(kind:Shape,segments=20,rings=12):Float32Array {
   const result:number[]=[];
   const tri=(a:V3,b:V3,c:V3,n?:V3)=>{
     const normal=n??normalize(cross([b[0]-a[0],b[1]-a[1],b[2]-a[2]],[c[0]-a[0],c[1]-a[1],c[2]-a[2]]));
-    for(const p of [a,b,c])result.push(...p,...normal);
+    for(const p of [a,b,c])result.push(...p,...(kind==='sphere'?normalize(p):normal));
   };
   if(kind==='box') {
     const faces:[[V3,V3,V3,V3],V3][]=[
@@ -59,9 +59,9 @@ function geometry(kind:Shape):Float32Array {
     for(const [p,n]of faces){tri(p[0],p[1],p[2],n);tri(p[0],p[2],p[3],n);}
   } else if(kind==='sphere') {
     const pos=(u:number,v:number):V3=>[Math.sin(v)*Math.cos(u),Math.cos(v),Math.sin(v)*Math.sin(u)];
-    for(let j=0;j<8;j++)for(let i=0;i<12;i++){
-      const a=pos(i/12*Math.PI*2,j/8*Math.PI),b=pos((i+1)/12*Math.PI*2,j/8*Math.PI);
-      const c=pos((i+1)/12*Math.PI*2,(j+1)/8*Math.PI),d=pos(i/12*Math.PI*2,(j+1)/8*Math.PI);
+    for(let j=0;j<rings;j++)for(let i=0;i<segments;i++){
+      const a=pos(i/segments*Math.PI*2,j/rings*Math.PI),b=pos((i+1)/segments*Math.PI*2,j/rings*Math.PI);
+      const c=pos((i+1)/segments*Math.PI*2,(j+1)/rings*Math.PI),d=pos(i/segments*Math.PI*2,(j+1)/rings*Math.PI);
       tri(a,b,c);tri(a,c,d);
     }
   } else if(kind==='ring') {
@@ -115,24 +115,30 @@ export class GLRenderer {
       in vec3 color;in vec3 n;in float coverage;out vec4 outColor;
       void main(){
         if(coverage<0.99 && mod(floor(gl_FragCoord.x)+floor(gl_FragCoord.y),2.0)>=coverage*2.0)discard;
-        float light=0.72+0.28*max(0.0,dot(normalize(n),normalize(vec3(-0.35,1.0,0.55))));
+        float diffuse=max(0.0,dot(normalize(n),normalize(vec3(-0.35,1.0,0.55))));
+        float light=diffuse>0.68?1.0:diffuse>0.22?0.84:0.63;
         outColor=vec4(color*light,1.0);
       }`);
     const program=gl.createProgram()!;gl.attachShader(program,vs);gl.attachShader(program,frag);gl.linkProgram(program);
     if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program)!);
     this.program=program;gl.deleteShader(vs);gl.deleteShader(frag);
-    for(const kind of ['box','sphere','cone','cylinder','ring'] as Shape[]) {
-      const verts=geometry(kind),vao=gl.createVertexArray()!,buffer=gl.createBuffer()!,instances=gl.createBuffer()!;
-      gl.bindVertexArray(vao);gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,verts,gl.STATIC_DRAW);
-      gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,3,gl.FLOAT,false,24,0);
-      gl.enableVertexAttribArray(1);gl.vertexAttribPointer(1,3,gl.FLOAT,false,24,12);
-      gl.bindBuffer(gl.ARRAY_BUFFER,instances);
-      for(let n=0;n<4;n++){gl.enableVertexAttribArray(2+n);gl.vertexAttribPointer(2+n,4,gl.FLOAT,false,80,n*16);gl.vertexAttribDivisor(2+n,1);}
-      gl.enableVertexAttribArray(6);gl.vertexAttribPointer(6,3,gl.FLOAT,false,80,64);gl.vertexAttribDivisor(6,1);
-      gl.enableVertexAttribArray(7);gl.vertexAttribPointer(7,1,gl.FLOAT,false,80,76);gl.vertexAttribDivisor(7,1);
-      this.meshes.set(kind,{vao,instances,count:verts.length/6});this.batches.set(kind,[]);
-    }
+    for(const kind of ['box','sphere','cone','cylinder','ring'])this.registerMesh(kind,geometry(kind));
+    this.registerMesh('sphere-low',geometry('sphere',12,8));
     gl.enable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);
+  }
+  // Interleaved position/normal meshes share the same instanced draw path.
+  registerMesh(kind:Shape,verts:Float32Array) {
+    if(this.meshes.has(kind))return;
+    if(verts.length%18!==0||!verts.every(Number.isFinite))throw Error('Malla no válida: '+kind);
+    const gl=this.gl,vao=gl.createVertexArray()!,buffer=gl.createBuffer()!,instances=gl.createBuffer()!;
+    gl.bindVertexArray(vao);gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,verts,gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,3,gl.FLOAT,false,24,0);
+    gl.enableVertexAttribArray(1);gl.vertexAttribPointer(1,3,gl.FLOAT,false,24,12);
+    gl.bindBuffer(gl.ARRAY_BUFFER,instances);
+    for(let n=0;n<4;n++){gl.enableVertexAttribArray(2+n);gl.vertexAttribPointer(2+n,4,gl.FLOAT,false,80,n*16);gl.vertexAttribDivisor(2+n,1);}
+    gl.enableVertexAttribArray(6);gl.vertexAttribPointer(6,3,gl.FLOAT,false,80,64);gl.vertexAttribDivisor(6,1);
+    gl.enableVertexAttribArray(7);gl.vertexAttribPointer(7,1,gl.FLOAT,false,80,76);gl.vertexAttribDivisor(7,1);
+    this.meshes.set(kind,{vao,instances,count:verts.length/6});this.batches.set(kind,[]);
   }
   begin(hero:boolean|CameraView=false) {
     const ratio=Math.min(this.quality==='high'?1.75:1,window.devicePixelRatio||1);
@@ -142,6 +148,7 @@ export class GLRenderer {
     this.vp=camera(w,h,hero);this.opacity=1;for(const list of this.batches.values())list.length=0;
   }
   add(kind:Shape,matrix:M4,color:string) {
+    if(kind==='sphere'&&this.quality==='low')kind='sphere-low';
     const n=parseInt(color.replace('#',''),16),list=this.batches.get(kind)!;
     list.push(...matrix,((n>>16)&255)/255,((n>>8)&255)/255,(n&255)/255,this.opacity);
   }

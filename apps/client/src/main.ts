@@ -1,4 +1,5 @@
 import './style.css';
+import { GameAudio } from './audio.ts';
 import { Scene, TEAM_COLORS } from './scene.ts';
 import { GLRenderer, camera } from './gl.ts';
 import { PACE_PROFILES, REGULATION_SECONDS } from '../../../packages/game/src/tuning.ts';
@@ -51,22 +52,17 @@ let scene:Scene;
 try{scene=new Scene(canvas);}catch(error){el('hero-stage-slot').innerHTML='<div class="graphics-error">'+esc((error as Error).message)+'</div>';throw error;}
 const controls=new Controls();
 let transport:GameTransport|null=null,state:MatchState|null=null,view='home',paused=false;
-let lobbyKey='',hudKey='',lastEvent=0,pendingInputs:InputFrame[]=[],lastSend=0;
+let lobbyKey='',hudKey='',resultsKey='',pendingInputs:InputFrame[]=[],lastSend=0;
 let toastTimeout:ReturnType<typeof setTimeout>;
-let sound=false,audio:AudioContext|null=null,quality='high';
+const gameAudio=new GameAudio();
+let quality='high';
 const demo=new Game(5678);demo.state.phase='playing';
 const thumbs=new Map<Species,string>();
 const nickname=()=>localStorage.getItem('pokesoccer-name')||'Entrenador';
 function toast(message:string) {
   el('toast').textContent=message;el('toast').hidden=false;clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>el('toast').hidden=true,4500);
 }
-function chirp(freq=440,duration=.1) {
-  if(!sound)return;
-  audio??=new AudioContext();void audio.resume();
-  const osc=audio.createOscillator(),gain=audio.createGain();osc.type='triangle';osc.frequency.value=freq;
-  gain.gain.setValueAtTime(.04,audio.currentTime);gain.gain.exponentialRampToValueAtTime(.001,audio.currentTime+duration);
-  osc.connect(gain);gain.connect(audio.destination);osc.start();osc.stop(audio.currentTime+duration);
-}
+function chirp(_freq=440,_duration=.1) {gameAudio.effect('ui');}
 function showDialog(html:string) {el('dialog-body').innerHTML=html;el<HTMLDialogElement>('dialog').showModal();controls.keys.clear();controls.enabled=false;}
 function closeDialog(){el<HTMLDialogElement>('dialog').close();controls.releaseActions();controls.enabled=view==='match'&&!paused;}
 el('dialog-close').onclick=closeDialog;
@@ -74,7 +70,8 @@ el<HTMLDialogElement>('dialog').addEventListener('close',()=>{controls.releaseAc
 el<HTMLDialogElement>('dialog').addEventListener('click',e=>{if(e.target===el('dialog'))closeDialog();});
 function setView(next:string) {
   if(next===view)return;
-  view=next;document.body.dataset.view=next;window.scrollTo(0,0);scene.camera.reset();
+  gameAudio.setPhase(next==='match'?'match':'lobby');
+  resultsKey='';view=next;document.body.dataset.view=next;window.scrollTo(0,0);scene.camera.reset();
   el('home').hidden=next!=='home';el('roster-section').hidden=next!=='home';el('footer').hidden=next!=='home';
   el('lobby').hidden=next!=='lobby';el('match').hidden=next!=='match';el('results').hidden=next!=='results';
   scene.hero=next!=='match';scene.labels.hidden=next!=='match';
@@ -83,7 +80,8 @@ function setView(next:string) {
   controls.enabled=next==='match'&&!paused&&!el<HTMLDialogElement>('dialog').open;
 }
 function connect(next:GameTransport) {
-  transport?.close();transport=next;state=null;lobbyKey='';hudKey='';pendingInputs=[];lastEvent=0;paused=false;
+  transport?.close();transport=next;state=null;lobbyKey='';hudKey='';pendingInputs=[];paused=false;
+  gameAudio.events.reset();
   next.onStatus=message=>{if(message==='Conectado'){clearTimeout(toastTimeout);el('toast').hidden=true;}else toast(message);};
   next.onState=(incoming,ack)=>{
     if(transport!==next)return;
@@ -95,9 +93,7 @@ function connect(next:GameTransport) {
     if(incoming.phase==='lobby'){setView('lobby');renderLobby();}
     else if(incoming.phase==='finished'){if(el('tactics-dialog'))closeDialog();setView('results');renderResults();}
     else {setView('match');updateHUD();}
-    const latest=incoming.events.filter(e=>e.id>lastEvent);
-    for(const e of latest){if(e.kind==='goal'){chirp(700,.4);setTimeout(()=>chirp(1000,.35),150);}else if(e.kind==='orb')chirp(880,.2);else if(e.kind==='cast')chirp(360,.18);else if(e.kind==='shot')chirp(210,.08);else if(e.kind==='shield')chirp(110,.12);}
-    lastEvent=incoming.events.at(-1)?.id??lastEvent;
+    gameAudio.snapshot(incoming);
   };
 }
 function startSolo() {closeDialog();connect(new LocalTransport(nickname(),0));}
@@ -130,7 +126,7 @@ function onlineDialog() {
 function canOrganize(team:Team):boolean {
   if(!state||!transport)return false;
   const me=state.humans.find(h=>h.id===transport!.sessionId&&h.connected);
-  return !!me&&(me.team===team&&me.captain||state.host===me.id&&!state.humans.some(h=>h.team===team&&h.connected));
+  return !!me&&me.team===team&&me.captain;
 }
 function teamPlanHTML(team:Team,inMatch=false):string {
   if(!state)return '';
@@ -170,7 +166,7 @@ function bindTeamPlans(container:HTMLElement) {
 function tacticsDialog() {
   if(!state||!transport||view!=='match')return;
   const team=state.humans.find(h=>h.id===transport!.sessionId)?.team??0;
-  showDialog(`<div id="tactics-dialog"><p class="eyebrow">LA PRÓXIMA JUGADA EMPIEZA AQUÍ</p><h2>Tu plan de partido.</h2><p class="dialog-intro">Prepara formación y estilo. Se aplican después de un gol o al reanudar tras el descanso. ${transport instanceof OnlineTransport?'El partido online continúa mientras eliges.':'El partido continúa; puedes pausarlo con Esc antes de abrir este menú.'}</p>${[team,...([0,1] as Team[]).filter(t=>t!==team&&canOrganize(t))].map(t=>'<h3 class="tactics-team">'+(t===0?'Sol':'Luna')+'</h3>'+teamPlanHTML(t,true)).join('')}<button id="tactics-done" class="button primary wide">Volver a la jugada ↗</button></div>`);
+  showDialog(`<div id="tactics-dialog"><p class="eyebrow">LA PRÓXIMA JUGADA EMPIEZA AQUÍ</p><h2>Tu plan de partido.</h2><p class="dialog-intro">Prepara formación y estilo. Se aplican después de un gol o al reanudar tras el descanso. ${transport instanceof OnlineTransport?'El partido online continúa mientras eliges.':'El partido continúa; puedes pausarlo con Esc antes de abrir este menú.'}</p>${[team,...([0,1] as Team[]).filter(t=>t!==team)].map(t=>'<h3 class="tactics-team">'+(t===0?'Sol':'Luna')+'</h3>'+teamPlanHTML(t,true)).join('')}<button id="tactics-done" class="button primary wide">Volver a la jugada ↗</button></div>`);
   bindTeamPlans(el('dialog-body'));el('tactics-done').onclick=closeDialog;
 }
 function refreshTacticStatus() {
@@ -243,7 +239,7 @@ function chooseDialog(slot:number) {
   const occupied=state.players.filter(p=>p.team===me.team&&p.slot!==slot).map(p=>p.species);
   showDialog(`<div class="choose-dialog"><p class="eyebrow">TU EQUIPO, TU ESTILO</p><h2>Elige un Pokémon.</h2><div class="choose-grid">${ROSTER.map(p=>`<button data-species="${p.id}" class="choose-card" ${occupied.includes(p.id)?'disabled':''}><img src="${thumbs.get(p.id)}" alt=""><strong>${p.name}</strong><small>${p.role}</small></button>`).join('')}</div><p class="fine-print">Un Pokémon de cada especie por equipo.</p></div>`);
   el('dialog-body').querySelectorAll<HTMLButtonElement>('[data-species]').forEach(button=>button.onclick=()=>{
-    transport?.send({type:'choose',slot,species:button.dataset.species as Species});closeDialog();chirp(580,.08);
+    transport?.send({type:'choose',slot,species:button.dataset.species as Species});closeDialog();gameAudio.speak(button.dataset.species as Species);
   });
 }
 function updateHUD() {
@@ -289,6 +285,8 @@ function updateHUD() {
 }
 function renderResults() {
   if(!state||!transport)return;
+  const key=JSON.stringify([state.score,state.winner,state.host,transport.sessionId,state.humans.map(h=>[h.id,h.team])]);
+  if(key===resultsKey)return;resultsKey=key;
   const own=state.humans.find(h=>h.id===transport!.sessionId)?.team;
   el('results').innerHTML=`<p class="eyebrow">SE ESCUCHÓ EL SILBATO</p><h1>${state.winner===null?'Hasta el final.':state.winner===own?'¡La cancha es tuya!':'La revancha te espera.'}</h1><div class="final-score"><span class="coral">SOL <b>${state.score[0]}</b></span><i>:</i><span class="cyan"><b>${state.score[1]}</b> LUNA</span></div><p>${state.winner===null?'Empate. Dos equipos, un gran partido.':'Victoria para '+(state.winner===0?'Sol':'Luna')+'.'}</p><div class="hero-actions">${state.host===transport.sessionId?'<button id="rematch" class="button primary">Un partido más ↗</button>':'<p>El anfitrión puede abrir la revancha.</p>'}<button id="results-home" class="button secondary">Volver al inicio</button></div>`;
   if(state.host===transport.sessionId)el('rematch').onclick=()=>{lobbyKey='';transport?.send({type:'rematch'});};
@@ -318,7 +316,32 @@ el('tactics-button').onclick=tacticsDialog;
 el('match-sound').onclick=()=>el('sound-button').click();
 el('leave-button').onclick=leave;el('pause-button').onclick=togglePause;
 el('quality-button').onclick=()=>{quality=quality==='high'?'low':'high';scene.renderer.quality=quality as 'high'|'low';el('quality-button').textContent='Calidad '+(quality==='high'?'alta':'baja');};
-el('sound-button').onclick=()=>{sound=!sound;el('sound-button').classList.toggle('active',sound);el('sound-button').setAttribute('aria-label',sound?'Desactivar sonido':'Activar sonido');el('match-sound').textContent=sound?'Sonido ♪':'Sonido apagado';el('match-sound').setAttribute('aria-label',sound?'Desactivar sonido del partido':'Activar sonido del partido');chirp(600,.12);};
+function audioDialog() {
+  const prefs=gameAudio.preferences;
+  showDialog(`<div class="audio-settings"><p class="eyebrow">SONIDO DE LA CANCHA</p><h2>A tu ritmo.</h2>
+    <label class="audio-mute"><input id="audio-muted" type="checkbox" ${prefs.muted?'checked':''}>Silenciar todo</label>
+    ${(['music','voices','effects'] as const).map((key,i)=>`<label>${['Música','Voces','Efectos'][i]}<input type="range" data-volume="${key}" aria-label="Volumen de ${['música','voces','efectos'][i]}" min="0" max="100" value="${Math.round(prefs[key]*100)}"><output>${Math.round(prefs[key]*100)}%</output></label>`).join('')}
+    <p class="fine-print">Los efectos están incluidos. Las grabaciones del tema y las voces del anime aún no están disponibles. Puedes usar archivos de tu dispositivo; se guardan solo aquí.</p>
+    <label>Música de sala<input type="file" data-track="lobby" accept="audio/*" aria-label="Música de sala"></label>
+    <label>Instrumental del partido<input type="file" data-track="match" accept="audio/*" aria-label="Música del partido"></label>
+    <details><summary>Voces de Pokémon</summary>${ROSTER.map(p=>`<label>${p.name}<input type="file" data-track="${p.id}" accept="audio/*" aria-label="Voz de ${p.name}"></label>`).join('')}</details>
+    <p id="audio-status" role="status"></p></div>`);
+  el<HTMLInputElement>('audio-muted').onchange=e=>{gameAudio.setPreferences({muted:(e.target as HTMLInputElement).checked});updateSoundButtons();};
+  el('dialog-body').querySelectorAll<HTMLInputElement>('[data-volume]').forEach(input=>input.oninput=()=>{
+    const key=input.dataset.volume as 'music'|'voices'|'effects';gameAudio.setPreferences({[key]:Number(input.value)/100});input.nextElementSibling!.textContent=input.value+'%';
+  });
+  el('dialog-body').querySelectorAll<HTMLInputElement>('[data-track]').forEach(input=>input.onchange=async()=>{
+    if(!input.files?.[0])return;
+    try{await gameAudio.importTrack(input.dataset.track!,input.files[0]);el('audio-status').textContent='Audio guardado en este dispositivo.';}
+    catch(error){el('audio-status').textContent=(error as Error).message;}
+  });
+}
+function updateSoundButtons() {
+  const muted=gameAudio.preferences.muted;
+  el('sound-button').setAttribute('aria-label','Configurar sonido');el('sound-button').classList.toggle('active',!muted);
+  el('match-sound').textContent=muted?'Sonido apagado':'Sonido ♪';el('match-sound').setAttribute('aria-label','Configurar sonido del partido');
+}
+el('sound-button').onclick=audioDialog;updateSoundButtons();
 document.querySelector('.brand')!.addEventListener('click',e=>{e.preventDefault();leave();});
 window.addEventListener('keydown',e=>{if(e.code==='KeyT'&&view==='match'&&!el<HTMLDialogElement>('dialog').open&&!Object.values(controls.bindings).includes('KeyT')){e.preventDefault();tacticsDialog();}if(e.code==='Escape'&&!el<HTMLDialogElement>('dialog').open){e.preventDefault();togglePause();}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&transport instanceof LocalTransport&&view==='match'&&!paused)togglePause();});

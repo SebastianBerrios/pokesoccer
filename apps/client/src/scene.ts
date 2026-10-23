@@ -1,5 +1,6 @@
 import { GLRenderer } from './gl.ts';
 import { drawPokemon, MODEL_BOUNDS } from './models.ts';
+import { drawAbilityEffect, drawAbilityStates } from './ability-visuals.ts';
 import { MatchCamera } from './match-camera.ts';
 import { clamp, lerp } from '../../../packages/game/src/math.ts';
 import { FIELD, POKEMON } from '../../../packages/game/src/catalog.ts';
@@ -62,8 +63,8 @@ export class Scene {
         const yaw=Math.atan2(p.facingX,p.facingZ);
         g.opacity=p.ghost>0?.5:1;
         drawPokemon(g,p.species,p.x,p.z,yaw,simTime,p.anim==='run',1,p.stun>0,p.cast>0,
-          p.action&&p.actionUntil>simTime?{kind:p.action,progress:clamp((simTime-p.actionStarted)/(p.actionUntil-p.actionStarted),0,1)}:undefined);
-        g.opacity=1;
+          p.action&&p.actionUntil>simTime?{kind:p.action,ability:p.actionAbility,progress:clamp((simTime-p.actionStarted)/(p.actionUntil-p.actionStarted),0,1)}:undefined);
+        g.opacity=1;drawAbilityStates(g,p,s,simTime);
         if(p.ghost>0) {
           g.shape('ring',p.x,.15,p.z,1.2,1,1.2,'#b9e9f2');
           g.shape('ring',p.x,bounds.height*.48,p.z,.82,1,.82,'#c1b7ef');
@@ -76,6 +77,7 @@ export class Scene {
         if(!this.hero) {
           const human=s.humans.find(h=>h.id===p.controller);
           label.textContent=controlled?(p.keeper?'TÚ · SAQUE':'TÚ · '+POKEMON[p.species].name):recipient?'PASE':human?human.name:p.keeper?'Ditto':POKEMON[p.species].name;
+          if(p.confusion>0)label.textContent+=' · CONFUSIÓN';
           label.classList.toggle('is-target',recipient);label.classList.toggle('is-ghost',p.ghost>0);
           label.style.transform='translate('+clamp(point.x,64,this.canvas.clientWidth-64)+'px,'+point.y+'px) translate(-50%,-50%)';
           label.style.color=controlled?'#fff3bb':team;label.classList.toggle('is-you',controlled);
@@ -87,26 +89,14 @@ export class Scene {
           }
         }
       }
-      for(const e of s.effects) {
-        if(e.kind==='projectile') {
-          g.opacity=.5;g.shape('sphere',e.x,.8,e.z,e.radius,.38,e.radius,e.color);g.opacity=1;
-          g.shape('ring',e.x,.09,e.z,e.radius*1.2,1,e.radius*1.2,e.color);
-        } else if(e.kind==='wall') {
-          g.opacity=.5;g.shape('cylinder',e.x,1,e.z,e.radius,2,e.radius,e.color);g.opacity=1;
-          g.shape('ring',e.x,2.1,e.z,e.radius*1.1,1,e.radius*1.1,'#eaf9f4');
-        } else {
-          const pulse=e.kind==='warning'?1+Math.sin(time*16)*.06:1;
-          g.shape('ring',e.x,.075,e.z,e.radius*pulse,1,e.radius*pulse,e.color);
-          if(e.kind==='warning')g.shape('ring',e.x,.08,e.z,e.radius*.8,1,e.radius*.8,'#fff0bc');
-          if(e.kind==='zone')for(let i=0;i<7;i++){const a=i/7*Math.PI*2+time;g.shape('cone',e.x+Math.cos(a)*e.radius*.8,.2,e.z+Math.sin(a)*e.radius*.8,.12,.35,.12,e.color);}
-        }
-      }
+      for(const e of s.effects)drawAbilityEffect(g,e,time);
       for(const o of s.pickups) {
         const color=o.kind==='orb'?'#ffe79a':o.kind==='berry'?'#99e59b':o.kind==='shield'?'#a4deff':'#ffb985';
         g.shape('ring',o.x,.06,o.z,.9,1,.9,color);
         g.shape(o.kind==='orb'?'sphere':'box',o.x,.8+Math.sin(time*3+o.id)*.17,o.z,.42,.42,.42,color,time*1.5,Math.PI/4);
       }
       const {x,z,y}=ball;
+      if(s.ball.abilityId)drawAbilityEffect(g,{id:0,abilityId:s.ball.abilityId,kind:'burst',owner:s.ball.lastTouch??'',team:s.ball.lastTeam??0,x,z,vx:s.ball.vx,vz:s.ball.vz,radius:.7,life:.3,maxLife:.5,color:'#ffc575',power:0,slow:0,stun:0,allySpeed:0,noSprint:false,hits:[],reflect:false,trail:false},time);
       g.shape('sphere',x,.04,z,.52,.022,.36,'#173e32');
       g.shape('sphere',x,y,z,.38,.38,.38,s.ball.fiery>0?'#ffd67e':'#fff8dc');
       g.shape('sphere',x,y+.29,z,.17,.11,.17,'#314b46');

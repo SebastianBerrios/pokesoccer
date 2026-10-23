@@ -1,12 +1,12 @@
 import { FIELD, POKEMON } from './catalog.ts';
 import { distance, unit, clamp, segmentDistance } from './math.ts';
-import { byId, event, constrainKeeperArea } from './state.ts';
+import { byId, event, constrainKeeperArea, random } from './state.ts';
 import { hit, shootBall } from './ball.ts';
 import { setAction } from './state.ts';
 import { PACE_PROFILES, BOT_PROFILES, botDifficulty } from './tuning.ts';
 import type { Ability, Effect, Fighter, MatchState } from './types.ts';
 function effect(s:MatchState,p:Fighter,a:Ability,kind:Effect['kind'],x=p.x,z=p.z):Effect {
-  const e:Effect={id:s.nextId++,owner:p.id,team:p.team,kind,color:a.color,x,z,vx:0,vz:0,radius:a.radius,
+  const e:Effect={abilityId:a.id,directionX:p.facingX,directionZ:p.facingZ,id:s.nextId++,owner:p.id,team:p.team,kind,color:a.color,x,z,vx:0,vz:0,radius:a.radius,
     life:a.duration,maxLife:a.duration,power:a.power??0,slow:a.slow??0,stun:a.stun??0,
     allySpeed:a.allySpeed??0,noSprint:a.noSprint??false,hits:[],reflect:false,trail:a.trail??false};
   s.effects.push(e);return e;
@@ -27,11 +27,12 @@ export function castAbility(s:MatchState,p:Fighter,slot:number):boolean {
   if(slot===2)p.special=0;
   p.charge=0;p.actionCd=.2;
   if(!p.controller&&slot>0)s.tactics[p.team].powerReadyAt=s.time+BOT_PROFILES[botDifficulty(s,p.team)].powerGap;
-  setAction(s,p,'cast',slot===2?.8:.45);
+  setAction(s,p,'cast',slot===2?.8:.45);p.actionAbility=a.id;
   if(slot===2) {
     p.cast=.8;p.castSlot=slot;p.castX=p.facingX;p.castZ=p.facingZ;
-    effect(s,p,{...a,duration:.8},'warning',p.x+p.facingX*a.range,p.z+p.facingZ*a.range);
-    event(s,'cast',a.name,p);
+    const offset=a.kind==='zone'?a.range:0;
+    effect(s,p,{...a,duration:.8,radius:a.kind==='shot'||a.kind==='ghost'?1:a.kind==='push'?a.range:a.radius},'warning',clamp(p.x+p.facingX*offset,-FIELD.halfWidth+1,FIELD.halfWidth-1),clamp(p.z+p.facingZ*offset,-FIELD.halfDepth+1,FIELD.halfDepth-1));
+    event(s,'cast',a.name,p);s.events.at(-1)!.abilityId=a.id;
   } else executeAbility(s,p,a);
   return true;
 }
@@ -45,9 +46,20 @@ export function executeAbility(s:MatchState,p:Fighter,a:Ability) {
   if(p.keeper)return;
   const previous={x:p.x,z:p.z};
   p.anim='cast';
+  setAction(s,p,'cast',.5);p.actionAbility=a.id;
+  event(s,'ability',a.name,p);s.events.at(-1)!.abilityId=a.id;
+  if(['shield','buff','ghost'].includes(a.kind)) {
+    for(const q of s.players)if(q.id===p.id||a.kind==='ghost'&&q.team===p.team&&!q.keeper)q.statuses[a.id]=a.duration;
+  }
+  if(['dash','shield','buff','ghost','pull','redirect','shot'].includes(a.kind)) {
+    const visual=effect(s,p,{...a,duration:.5,radius:a.kind==='dash'?3:1},'burst');
+    if(a.kind==='pull'||a.kind==='redirect'){visual.targetX=s.ball.x;visual.targetZ=s.ball.z;}
+  }
+  if(a.kind==='pull'||a.kind==='redirect'){s.ball.passTarget=null;s.ball.passSession=null;s.ball.passer=null;s.ball.abilityId=a.id;}
+  if(a.kind==='blink')effect(s,p,{...a,duration:.4,radius:1.5},'burst');
   const dx=p.facingX,dz=p.facingZ,impulse=PACE_PROFILES[s.settings.pace].impulse;
   if(a.kind==='dash') {
-    p.vx=dx*a.range*6*impulse;p.vz=dz*a.range*6*impulse;p.boost=1.2;
+    p.vx=dx*a.range*6*impulse;p.vz=dz*a.range*6*impulse;p.boost=1.2;p.statuses[a.id]=1.2;
     for(const q of s.players)if(q.team!==p.team&&!q.keeper&&distance(q,p)<3)
       hit(s,q,dx,dz,a.power??6,.35);
   } else if(a.kind==='blink') {
@@ -59,7 +71,7 @@ export function executeAbility(s:MatchState,p:Fighter,a:Ability) {
       if(q.team!==p.team&&distance(q,p)<a.range&&v.x*dx+v.z*dz>.25)
         hit(s,q,v.x,v.z,a.power??6,a.stun??.25,a.slow??0);
     }
-    effect(s,p,{...a,duration:.35,radius:a.range*.65},'burst',p.x+dx*2,p.z+dz*2);
+    effect(s,p,{...a,duration:.35,radius:a.range},'burst',p.x,p.z);
   } else if(a.kind==='projectile') {
     const count=a.count??1;
     for(let n=0;n<count;n++) {
@@ -78,7 +90,7 @@ export function executeAbility(s:MatchState,p:Fighter,a:Ability) {
   else if(a.kind==='ghost') { for(const q of s.players)if(q.team===p.team&&!q.keeper)q.ghost=a.duration; }
   else if(a.kind==='pull') {const v=unit(p.x-s.ball.x,p.z-s.ball.z);s.ball.vx=v.x*16*PACE_PROFILES[s.settings.pace].ball;s.ball.vz=v.z*16*PACE_PROFILES[s.settings.pace].ball;s.ball.vy=0;}
   else if(a.kind==='redirect') {s.ball.vx=dx*24*PACE_PROFILES[s.settings.pace].ball;s.ball.vz=dz*24*PACE_PROFILES[s.settings.pace].ball;s.ball.vy=1;s.ball.lastTouch=p.id;s.ball.lastTeam=p.team;s.ball.pickupLock=.1;}
-  else if(a.kind==='shot') shootBall(s,p,1,a.power??1.3,a.curve??0,a.trail??false);
+  else if(a.kind==='shot') {shootBall(s,p,1,a.power??1.3,a.curve??0,a.trail??false);s.ball.abilityId=a.id;p.actionAbility=a.id;}
   constrainKeeperArea(s,p,previous);
 }
 export function useItem(s:MatchState,p:Fighter):boolean {
@@ -87,7 +99,7 @@ export function useItem(s:MatchState,p:Fighter):boolean {
   if(kind==='berry')p.boost=3;
   else if(kind==='shield')p.shield=4;
   else {
-    const a:Ability={name:'Bomba',description:'',kind:'projectile',color:'#ffb56b',range:10,radius:2.8,duration:.6/PACE_PROFILES[s.settings.pace].impulse,power:9,stun:.6};
+    const a:Ability={id:'item-bomb',name:'Bomba',description:'',kind:'projectile',color:'#ffb56b',range:10,radius:2.8,duration:.6/PACE_PROFILES[s.settings.pace].impulse,power:9,stun:.6};
     const e=effect(s,p,a,'projectile',p.x+p.facingX,p.z+p.facingZ);
     e.vx=p.facingX*15*PACE_PROFILES[s.settings.pace].impulse;e.vz=p.facingZ*15*PACE_PROFILES[s.settings.pace].impulse;
   }
@@ -114,6 +126,10 @@ export function updateEffects(s:MatchState,dt:number) {
         if(e.noSprint)p.noSprint=Math.max(p.noSprint,.2);
         if(!e.hits.includes(p.id)) {
           e.hits.push(p.id);const v=unit(p.x-e.x,p.z-e.z);
+          if(e.abilityId==='gengar-special'&&p.confusionGuard<=0&&p.immunity<=0&&p.dodgeTime<=0&&p.shield<=0) {
+            p.confusion=.8;p.confusionGuard=2;p.confusionTurn=random(s)<.5?-1:1;
+          }
+          s.effects.push({...e,stage:'impact',id:s.nextId++,kind:'burst',x:p.x,z:p.z,vx:0,vz:0,radius:Math.min(e.radius,.8),life:.25,maxLife:.25,hits:[]});
           if(e.power>0||e.stun>0)hit(s,p,e.kind==='projectile'?unit(e.vx,e.vz).x:v.x,e.kind==='projectile'?unit(e.vx,e.vz).z:v.z,e.power,e.stun,e.slow);
           if(e.kind==='projectile'&&e.radius<3){e.life=0;break;}
         }
@@ -121,6 +137,7 @@ export function updateEffects(s:MatchState,dt:number) {
     }
     if(e.life>0&&!s.ball.owner&&segmentDistance(s.ball,prev,e)<e.radius+.3&&s.ball.y<3) {
       if(e.kind==='projectile') {
+        s.ball.passTarget=null;s.ball.passSession=null;s.ball.passer=null;s.ball.abilityId=e.abilityId??null;
         s.ball.vx=e.vx*1.2;s.ball.vz=e.vz*1.2;s.ball.lastTouch=e.owner;s.ball.lastTeam=e.team;
         if(e.radius<3)e.life=0;
       }

@@ -1,4 +1,5 @@
 import { FIELD } from './catalog.ts';
+import { inArea } from './geometry.ts';
 import { clamp, distance, segmentDistance, unit } from './math.ts';
 import { attackDirection, byId, event, random, endKeeperPossession } from './state.ts';
 import { catchBall, gain, hit } from './ball.ts';
@@ -58,10 +59,10 @@ export function updateBall(s:MatchState,dt:number) {
   if(b.y<.35){b.y=.35;b.vy=Math.abs(b.vy)>.9?-b.vy*.42:0;}
   const drag=b.y>.4?.07:.5;
   b.vx*=Math.exp(-drag*dt);b.vz*=Math.exp(-drag*dt);
-  if(Math.abs(b.z)>FIELD.halfDepth-.3){b.z=clamp(b.z,-FIELD.halfDepth+FIELD.ballRadius,FIELD.halfDepth-FIELD.ballRadius);b.vz*=-.82;}
+  if(Math.abs(b.z)>FIELD.halfDepth-.3){b.z=clamp(b.z,-FIELD.halfDepth+FIELD.ballRadius,FIELD.halfDepth-FIELD.ballRadius);b.vz*=-.82;b.passTarget=null;b.passSession=null;b.passer=null;}
   for(const e of s.effects)if(e.kind==='wall'&&b.y<3&&segmentDistance(e,prev,b)<e.radius+.3) {
     const v=unit(b.x-e.x,b.z-e.z),dot=b.vx*v.x+b.vz*v.z;
-    if(dot<0){b.vx-=2*dot*v.x;b.vz-=2*dot*v.z;b.x=e.x+v.x*(e.radius+.35);b.z=e.z+v.z*(e.radius+.35);if(e.reflect)e.life=0;}
+    if(dot<0){b.passTarget=null;b.passSession=null;b.passer=null;b.vx-=2*dot*v.x;b.vz-=2*dot*v.z;b.x=e.x+v.x*(e.radius+.35);b.z=e.z+v.z*(e.radius+.35);if(e.reflect)e.life=0;}
   }
   // Swept catches run before the goal-line crossing, preventing tunneling through keepers.
   for(const p of s.players) {
@@ -77,24 +78,32 @@ export function updateBall(s:MatchState,dt:number) {
     const crossingZ=prev.z+(b.z-prev.z)*clamp(t,0,1);
     if(Math.abs(b.x)>=FIELD.halfWidth&&Math.abs(crossingZ)<FIELD.goalHalf-.25&&b.y<FIELD.goalHeight-.2) {scoreGoal(s,Math.sign(b.x));return;}
     if(Math.abs(crossingZ)>=FIELD.goalHalf-.25||b.y>=FIELD.goalHeight-.2) {
-      b.x=clamp(b.x,-FIELD.halfWidth+FIELD.ballRadius,FIELD.halfWidth-FIELD.ballRadius);b.vx*=-.85;
+      b.x=clamp(b.x,-FIELD.halfWidth+FIELD.ballRadius,FIELD.halfWidth-FIELD.ballRadius);b.vx*=-.85;b.passTarget=null;b.passSession=null;b.passer=null;
     }
   }
   if(b.fiery>0&&s.tick%3===0) {
     const id=s.nextId++;
-    s.effects.push({id,owner:b.lastTouch??'',team:b.lastTeam??0,kind:'zone',color:'#ff793f',x:b.x,z:b.z,vx:0,vz:0,
+    s.effects.push({abilityId:b.abilityId??undefined,id,owner:b.lastTouch??'',team:b.lastTeam??0,kind:'zone',color:'#ff793f',x:b.x,z:b.z,vx:0,vz:0,
       radius:1,life:.7,maxLife:.7,power:0,stun:0,slow:.25,allySpeed:0,noSprint:false,hits:[],reflect:false,trail:true});
   }
 }
 export function updatePickups(s:MatchState,dt:number) {
   s.orbTimer-=dt;s.itemTimer-=dt;
-  if(s.orbTimer<=0) {s.orbTimer=PACE_PROFILES[s.settings.pace].orbInterval;if(!s.pickups.some(o=>o.kind==='orb'))s.pickups.push({id:s.nextId++,kind:'orb',x:0,z:0,life:9999});}
+  if(s.orbTimer<=0) {
+    const point=pickupPosition(s);
+    if(s.pickups.some(o=>o.kind==='orb'))s.orbTimer=PACE_PROFILES[s.settings.pace].orbInterval;
+    else if(point){s.pickups.push({id:s.nextId++,kind:'orb',...point,life:9999});s.orbTimer=PACE_PROFILES[s.settings.pace].orbInterval;}
+    else s.orbTimer=.5;
+  }
   if(s.itemTimer<=0) {
-    s.itemTimer=PACE_PROFILES[s.settings.pace].itemInterval;
-    for(const z of [-FIELD.halfDepth*.72,FIELD.halfDepth*.72])if(!s.pickups.some(o=>o.kind!=='orb'&&Math.abs(o.z-z)<1)) {
+    let deferred=false;
+    while(s.pickups.filter(o=>o.kind!=='orb').length<2) {
+      const point=pickupPosition(s);
+      if(!point){deferred=true;break;}
       const kind=(['berry','shield','bomb'] as const)[Math.floor(random(s)*3)];
-      s.pickups.push({id:s.nextId++,kind,x:0,z,life:20});
+      s.pickups.push({id:s.nextId++,kind,...point,life:20});
     }
+    s.itemTimer=deferred?.5:PACE_PROFILES[s.settings.pace].itemInterval;
   }
   for(const o of s.pickups) {
     o.life-=dt;
@@ -105,4 +114,14 @@ export function updatePickups(s:MatchState,dt:number) {
     }
   }
   s.pickups=s.pickups.filter(o=>o.life>0);
+}
+
+export function pickupPosition(s:MatchState) {
+  for(let attempt=0;attempt<32;attempt++) {
+    const point={x:(random(s)*2-1)*(FIELD.halfWidth-2),z:(random(s)*2-1)*(FIELD.halfDepth-2)};
+    if(inArea(point,1,1.3)||inArea(point,-1,1.3))continue;
+    if(s.players.some(p=>distance(p,point)<2)||s.pickups.some(p=>distance(p,point)<2.6))continue;
+    return point;
+  }
+  return null;
 }

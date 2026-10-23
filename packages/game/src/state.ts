@@ -30,12 +30,12 @@ export function sanitizeInput(raw: unknown): InputFrame | null {
 export function fighter(team: Team, slot: number, species: Species, keeper=false): Fighter {
   return { id:team+'-'+slot,team,slot,species,keeper,x:0,z:0,vx:0,vz:0,facingX:team===0?1:-1,facingZ:0,
     controller:null,epoch:0,stamina:100,simpleCd:0,normal:0,special:0,item:null,
-    stun:0,immunity:0,slow:0,slowTime:0,shield:0,boost:0,buff:0,ghost:0,noSprint:0,
+    confusion:0,confusionGuard:0,confusionTurn:0,actionAbility:null,statuses:{},stun:0,immunity:0,slow:0,slowTime:0,shield:0,boost:0,buff:0,ghost:0,noSprint:0,
     actionCd:0,dodgeTime:0,charge:0,cast:0,castSlot:-1,castX:1,castZ:0,
     aiTimer:0,aiX:0,aiZ:0,aiShoot:false,aiSprint:false,passCredit:0,anim:'idle',action:null,actionStarted:0,actionUntil:0 };
 }
 export function freshBall(): Ball {
-  return {x:0,z:0,y:.35,vx:0,vy:0,vz:0,owner:null,lastTouch:null,passer:null,passSession:null,passTarget:null,shot:false,pickupLock:0,curve:0,fiery:0,lastTeam:null};
+  return {x:0,z:0,y:.35,vx:0,vy:0,vz:0,owner:null,lastTouch:null,passer:null,passSession:null,passTarget:null,shot:false,abilityId:null,pickupLock:0,curve:0,fiery:0,lastTeam:null};
 }
 export function createState(seed=12345, regulation=REGULATION_SECONDS, overtime=OVERTIME_SECONDS, mode:MatchMode='online'): MatchState {
   const state: MatchState = {settings:{...DEFAULT_SETTINGS},keeperPossession:null,tactics:[0,1].map(()=>({focus:{x:0,z:0},presser:null,collector:null,powerReadyAt:0,roles:{},targets:{}})) as MatchState['tactics'],mode,teamPlans:[defaultTeamPlan(),defaultTeamPlan()],pendingTeamPlans:[null,null],autoLineup:[true,true],restartTeam:null,version:1,tick:0,time:0,phase:'lobby',remaining:regulation,phaseTime:0,half:1,score:[0,0],
@@ -69,7 +69,7 @@ export function resetPositions(s: MatchState, kickoff: Team) {
       p.x=dir*(-FIELD.halfWidth*.48+position.x*FIELD.halfWidth*.48);
       p.z=position.z*FIELD.halfDepth;
     }
-    p.vx=0;p.vz=0;p.stun=0;p.immunity=1;p.ghost=0;p.cast=0;p.castSlot=-1;p.charge=0;p.anim='idle';
+    p.vx=0;p.vz=0;p.stun=0;p.immunity=1;p.confusion=0;p.confusionGuard=0;p.actionAbility=null;p.ghost=0;p.cast=0;p.castSlot=-1;p.charge=0;p.anim='idle';
     p.action=null;p.actionStarted=s.time;p.actionUntil=s.time;p.facingX=dir;p.facingZ=0;
     p.aiTimer=.3;p.aiX=0;p.aiZ=0;p.aiShoot=false;p.aiSprint=false;
     if(p.controller)p.epoch=s.nextId++;
@@ -84,7 +84,7 @@ export function resetPositions(s: MatchState, kickoff: Team) {
   assignPossession(s,taker);
 }
 export function setAction(s: MatchState, p: Fighter, action: FighterAction, duration: number) {
-  p.action=action;p.actionStarted=s.time;p.actionUntil=s.time+duration;
+  p.action=action;p.actionAbility=null;p.actionStarted=s.time;p.actionUntil=s.time+duration;
 }
 export function random(s: MatchState): number {
   s.seed=(Math.imul(s.seed,1664525)+1013904223)>>>0; return s.seed/4294967296;
@@ -115,6 +115,10 @@ export function movementSpeed(p:Fighter, sprint=false, settings:MatchSettings=DE
 }
 export function moveFighter(p:Fighter,input:Pick<InputFrame,'moveX'|'moveZ'|'sprint'>,dt:number,settings:MatchSettings=DEFAULT_SETTINGS) {
   if(p.keeper||p.stun>0||p.cast>0) return;
+  if(p.confusion>0) {
+    const angle=p.confusionTurn*Math.PI/6,c=Math.cos(angle),s=Math.sin(angle);
+    input={...input,moveX:input.moveX*c-input.moveZ*s,moveZ:input.moveX*s+input.moveZ*c};
+  }
   const speed=movementSpeed(p,input.sprint,settings);
   p.x=clamp(p.x+input.moveX*speed*dt,-FIELD.halfWidth+FIELD.playerRadius,FIELD.halfWidth-FIELD.playerRadius);
   p.z=clamp(p.z+input.moveZ*speed*dt,-FIELD.halfDepth+FIELD.playerRadius,FIELD.halfDepth-FIELD.playerRadius);

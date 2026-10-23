@@ -12,7 +12,7 @@ export function possession(s:MatchState,team:0|1) {
 export function dropBall(s:MatchState,p:Fighter,dx=p.facingX,dz=p.facingZ,power=5) {
   if(s.ball.owner!==p.id)return;
   const b=s.ball;b.owner=null;b.x=p.x+dx*.8;b.z=p.z+dz*.8;b.y=.4;
-  b.vx=dx*power;b.vz=dz*power;b.vy=1.8;b.pickupLock=.25;b.passer=null;b.passTarget=null;b.passSession=null;b.shot=false;
+  b.vx=dx*power;b.vz=dz*power;b.vy=1.8;b.pickupLock=.25;b.passer=null;b.passTarget=null;b.passSession=null;b.shot=false;b.abilityId=null;
 }
 export function hit(s:MatchState,target:Fighter,dx:number,dz:number,power:number,stun=.25,slow=0,source:'contact'|'ability'='ability'):boolean {
   if(target.keeper||target.dodgeTime>0||target.immunity>0||source==='contact'&&target.ghost>0)return false;
@@ -38,7 +38,7 @@ export function catchBall(s:MatchState,p:Fighter) {
   } else if(oldTeam!==null&&oldTeam!==p.team&&!p.keeper) gain(p,25);
   if(p.keeper&&b.shot) {const shooter=byId(s,b.lastTouch);if(shooter)gain(shooter,25);event(s,'save','¡Atajada!',p);}
   possession(s,p.team);
-  b.owner=p.id;b.lastTouch=p.id;b.lastTeam=p.team;b.passer=null;b.passTarget=null;b.passSession=null;b.shot=false;b.curve=0;b.fiery=0;
+  b.owner=p.id;b.lastTouch=p.id;b.lastTeam=p.team;b.passer=null;b.passTarget=null;b.passSession=null;b.shot=false;b.abilityId=null;b.curve=0;b.fiery=0;
   b.vx=0;b.vy=0;b.vz=0;p.aiTimer=0;p.charge=0;
   if(p.keeper)beginKeeperPossession(s,p);else assignPossession(s,p,preferred);
 }
@@ -65,7 +65,8 @@ export function passBall(s:MatchState,p:Fighter,lob=false,recipient?:Fighter) {
   b.owner=null;b.x=p.x+v.x*.95;b.z=p.z+v.z*.95;b.y=.45;b.vx=v.x*speed;b.vz=v.z*speed;
   b.vy=lob?9.8*flight/2:.9;b.pickupLock=.15;
   b.passer=p.id;b.passSession=p.controller;b.passTarget=target?.id??null;
-  b.lastTouch=p.id;b.lastTeam=p.team;b.shot=false;b.curve=0;b.fiery=0;
+  if(target&&!target.controller){target.aiTimer=0;target.aiShoot=false;target.aiSprint=false;}
+  b.lastTouch=p.id;b.lastTeam=p.team;b.shot=false;b.abilityId=null;b.curve=0;b.fiery=0;
   p.actionCd=.3;p.anim='kick';p.charge=0;setAction(s,p,'pass',.35);
 }
 export function shootBall(s:MatchState,p:Fighter,charge=.35,power=1,curve=0,fiery=false,aimError=0) {
@@ -79,7 +80,7 @@ export function shootBall(s:MatchState,p:Fighter,charge=.35,power=1,curve=0,fier
   const b=s.ball;b.owner=null;b.x=p.x+v.x*.95;b.z=p.z+v.z*.95;b.y=.5;
   b.vx=v.x*speed;b.vz=v.z*speed;b.vy=2+clamp(charge,0,1)*2;
   b.lastTouch=p.id;b.lastTeam=p.team;b.passer=null;b.passSession=null;b.passTarget=null;
-  b.pickupLock=.18;b.shot=true;b.curve=curve*(p.z>=0?-1:1);b.fiery=fiery?1.2:0;
+  b.pickupLock=.18;b.shot=true;b.abilityId=null;b.curve=curve*(p.z>=0?-1:1);b.fiery=fiery?1.2:0;
   p.actionCd=.4;p.charge=0;p.anim='kick';setAction(s,p,'shot',.45);
   event(s,'shot',power>1?'¡Tiro especial!':'',p);
 }
